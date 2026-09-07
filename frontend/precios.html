@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Precios - Club de Lectura</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#C7B293',
+                        secondary: '#9E8860',
+                        accent: '#F59E0B',
+                        bg: '#F8FAFC',
+                        text: '#1E293B',
+                        surface: '#FFFFFF',
+                        error: '#EF4444',
+                        success: '#10B981'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="min-h-screen">
+    <div id="header"></div>
+
+    <main class="py-16 md:py-24">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h1 class="text-4xl md:text-5xl font-bold mb-4">Nuestros Planes</h1>
+                <p class="text-xl text-gray-600 max-w-2xl mx-auto">Elige el plan que mejor se adapta a tus necesidades de lectura y crecimiento personal.</p>
+            </div>
+
+            <div class="max-w-lg mx-auto mb-16">
+                <div class="card text-center border-2 border-primary relative">
+                    <div class="absolute top-0 right-0 bg-accent text-white px-3 py-1 text-sm font-semibold rounded-tr-lg rounded-bl-lg">1er Mes Gratis</div>
+                    <div class="pb-4 border-b">
+                        <h2 class="text-2xl font-bold mb-2">Suscripcion Mensual</h2>
+                        <div class="text-4xl font-bold text-primary">$80<span class="text-lg font-normal text-gray-600">/mes</span></div>
+                        <p class="text-sm text-gray-600 mt-2">Primer mes gratis, sin compromiso</p>
+                    </div>
+                    <ul class="space-y-3 py-4 text-left">
+                        <li class="flex items-center">Sesiones ilimitadas al mes</li>
+                        <li class="flex items-center">1 libro del mes</li>
+                        <li class="flex items-center">Grupo de participantes</li>
+                        <li class="flex items-center">Atencion personalizada</li>
+                        <li class="flex items-center">Grabaciones de sesiones anteriores</li>
+                    </ul>
+                    <button id="btn-plan-suscripcion" class="btn-primary w-full mt-6">Empezar Gratis - 1 Mes</button>
+                </div>
+            </div>
+
+            <div class="text-center mt-12">
+                <h3 class="text-2xl font-bold mb-4">¿Necesitas ayuda para decidir?</h3>
+                <p class="text-gray-600 mb-6">Contacta con nosotros y te asesoraremos sin compromiso.</p>
+                <a href="contacto.html" class="btn-secondary">Contactar Ahora</a>
+            </div>
+        </div>
+    </main>
+
+    <div id="footer"></div>
+
+    <script src="js/components.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/pagos.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            Auth.inicializarAuth();
+            Main.inicializarMain();
+            Pagos.inicializarPagos();
+            
+            const btnPlan = document.getElementById('btn-plan-suscripcion');
+            if (btnPlan) {
+                btnPlan.addEventListener('click', () => {
+                    if (!Auth.obtenerUsuario()) {
+                        window.location.href = 'login.html';
+                    } else {
+                        Pagos.iniciarCheckoutSuscripcion();
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

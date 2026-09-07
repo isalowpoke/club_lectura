@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sobre Nosotros - Club de Lectura</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#C7B293',
+                        secondary: '#9E8860',
+                        accent: '#F59E0B',
+                        bg: '#F8FAFC',
+                        text: '#1E293B',
+                        surface: '#FFFFFF',
+                        error: '#EF4444',
+                        success: '#10B981'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="min-h-screen flex flex-col">
+    <div id="header"></div>
+
+    <main class="flex-1">
+        <!-- Hero -->
+        <section class="bg-gradient-to-br from-primary to-secondary text-white py-16 md:py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                <h1 class="text-4xl md:text-5xl font-bold mb-6">Sobre Nosotros</h1>
+                <p class="text-xl text-blue-100 max-w-2xl mx-auto">
+                    Somos una comunidad apasionada por la lectura que busca conectar personas a través de los libros.
+                </p>
+            </div>
+        </section>
+
+        <!-- Quiénes Somos -->
+        <section class="py-16 md:py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid md:grid-cols-2 gap-12 items-center">
+                    <div>
+                        <h2 class="text-3xl font-bold mb-6">Quiénes Somos</h2>
+                        <p class="text-gray-600 mb-4">
+                            Somos un equipo de jóvenes apasionados por la lectura que decidimos crear un espacio donde los amantes de los libros pudieran conectarse, compartir opiniones y descubrir nuevas historias juntos.
+                        </p>
+                        <p class="text-gray-600 mb-4">
+                            Nacimos de la idea de que leer es mejor cuando se comparte. Queremos formar una comunidad donde cada lector se sienta bienvenido, respetado y acompañado en su journey literario.
+                        </p>
+                        <p class="text-gray-600">
+                            Toda nuestra operación es 100% virtual, lo que nos permite llegar a lectores de toda Latinoamérica sin barreras geográficas.
+                        </p>
+                    </div>
+                    <div class="bg-gradient-to-br from-primary/10 to-secondary/10 rounded-2xl p-8">
+                        <div class="grid grid-cols-2 gap-6 text-center">
+                            <div>
+                                <p class="text-4xl font-bold text-primary">150+</p>
+                                <p class="text-gray-600">Miembros activos</p>
+                            </div>
+                            <div>
+                                <p class="text-4xl font-bold text-secondary">12</p>
+                                <p class="text-gray-600">Libros leídos</p>
+                            </div>
+                            <div>
+                                <p class="text-4xl font-bold text-accent">98%</p>
+                                <p class="text-gray-600">Satisfacción</p>
+                            </div>
+                            <div>
+                                <p class="text-4xl font-bold text-success">50+</p>
+                                <p class="text-gray-600">Sesiones realizadas</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cómo Funciona -->
+        <section class="py-16 md:py-24 bg-gray-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">Cómo Funciona</h2>
+                <p class="section-subtitle mb-12">
+                    Unirse es fácil. En solo 3 pasos estarás disfrutando de nuestra comunidad.
+                </p>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">1</div>
+                        <h3 class="text-xl font-semibold mb-3">Elige tu Plan</h3>
+                        <p class="text-gray-600">Selecciona el plan que mejor se adapte a tus necesidades. Recuerda que el primer mes es gratis.</p>
+                    </div>
+
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">2</div>
+                        <h3 class="text-xl font-semibold mb-3">Únete a la Comunidad</h3>
+                        <p class="text-gray-600">Recibe acceso a nuestro grupo exclusivo y conoce a otros miembros que comparten tu pasión.</p>
+                    </div>
+
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-accent rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">3</div>
+                        <h3 class="text-xl font-semibold mb-3">Disfruta y Aprende</h3>
+                        <p class="text-gray-600">Participa en las sesiones mensuales, comparte opiniones y descubre nuevos libros.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Valores -->
+        <section class="py-16 md:py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">Nuestros Valores</h2>
+
+                <div class="grid md:grid-cols-4 gap-6 mt-12">
+                    <div class="card text-center">
+                        <div class="text-4xl mb-4">📖</div>
+                        <h3 class="font-semibold mb-2">Pasión</h3>
+                        <p class="text-gray-600 text-sm">Amamos los libros y queremos compartir esa pasión con otros.</p>
+                    </div>
+
+                    <div class="card text-center">
+                        <div class="text-4xl mb-4">🤝</div>
+                        <h3 class="font-semibold mb-2">Respeto</h3>
+                        <p class="text-gray-600 text-sm">Todos los puntos de vista son válidos y merecen ser escuchados.</p>
+                    </div>
+
+                    <div class="card text-center">
+                        <div class="text-4xl mb-4">🌱</div>
+                        <h3 class="font-semibold mb-2">Crecimiento</h3>
+                        <p class="text-gray-600 text-sm">Cada libro es una oportunidad para aprender y crecer.</p>
+                    </div>
+
+                    <div class="card text-center">
+                        <div class="text-4xl mb-4">💜</div>
+                        <h3 class="font-semibold mb-2">Comunidad</h3>
+                        <p class="text-gray-600 text-sm">Juntos somos más fuertes. Construimos en conjunto.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="py-16 md:py-24 bg-gradient-to-r from-primary to-secondary">
+            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">
+                <h2 class="text-3xl md:text-4xl font-bold mb-6">¿Quieres conocernos?</h2>
+                <p class="text-xl mb-8 text-blue-100">El mejor conocernos es uniéndote. El primer mes es GRATIS.</p>
+                <a href="index.html#precios" class="btn-accent text-lg inline-block">Únete Ahora</a>
+            </div>
+        </section>
+    </main>
+
+    <div id="footer"></div>
+
+    <script src="js/components.js"></script>
+</body>
+</html>

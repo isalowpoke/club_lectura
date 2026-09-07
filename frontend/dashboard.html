@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Club de Lectura</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#C7B293',
+                        secondary: '#9E8860',
+                        accent: '#F59E0B',
+                        bg: '#F8FAFC',
+                        text: '#1E293B',
+                        surface: '#FFFFFF',
+                        error: '#EF4444',
+                        success: '#10B981'
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="min-h-screen bg-gray-50">
+    <div id="header"></div>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Seccion: Login Requerido -->
+        <div id="login-required" class="hidden min-h-[60vh] flex items-center justify-center">
+            <div class="card p-8 text-center">
+                <div class="text-6xl mb-4">📚</div>
+                <h2 class="text-2xl font-bold mb-4">Acceso Requerido</h2>
+                <p class="text-gray-600 mb-6">Inicia sesion para acceder a tu panel personalizado y contenido exclusivo.</p>
+                <button id="btn-login" class="btn-primary">Iniciar Sesion con Google</button>
+            </div>
+        </div>
+
+        <!-- Seccion: Dashboard -->
+        <div id="dashboard-content" class="hidden space-y-8">
+            <!-- Header del Dashboard -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+                <div>
+                    <h1 class="text-3xl font-bold mb-2">Bienvenido de nuevo</h1>
+                    <p class="text-gray-600">Hola, <span id="user-email-display" class="font-semibold">usuario@email.com</span></p>
+                </div>
+                <button id="btn-logout" class="mt-4 md:mt-0 text-gray-600 hover:text-red-500 transition-colors text-sm font-medium">
+                    Cerrar sesion
+                </button>
+            </div>
+
+            <!-- Grid Principal -->
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Estado de Suscripcion -->
+                <div class="card">
+                    <h2 class="text-xl font-bold mb-4">Estado de Suscripcion</h2>
+                    <div id="suscripcion-estado" class="space-y-2 mb-4">
+                        <div class="text-gray-500">Cargando...</div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4 mt-4">
+                        <div class="text-sm text-gray-600 mb-1">Plan:</div>
+                        <div id="plan-info" class="font-semibold">Mensual</div>
+                        
+                        <div class="text-sm text-gray-600 mt-3 mb-1">Precio:</div>
+                        <div id="precio-info" class="font-semibold">$80 MXN</div>
+                    </div>
+                    
+                    <div class="mt-6 space-y-3">
+                        <button id="btn-suscribirse" class="btn-primary w-full hidden">
+                            Suscribirse Ahora - $80 MXN/mes
+                        </button>
+                        <button id="btn-cancelar-suscripcion" class="w-full py-2 px-4 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium hidden">
+                            Cancelar Suscripcion
+                        </button>
+                        <button id="btn-sesion-extra" class="btn-accent w-full">
+                            Ver Sesiones Especiales
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Proxima Sesion -->
+                <div class="card">
+                    <h2 class="text-xl font-bold mb-4">Proxima Sesion</h2>
+                    <div id="proxima-sesion-info" class="space-y-2">
+                        <div class="text-gray-500">Cargando...</div>
+                    </div>
+                    
+                    <div class="mt-6">
+                        <h3 class="text-sm font-semibold text-gray-600 mb-3">Proximas sesiones:</h3>
+                        <div id="lista-proximas-sesiones" class="space-y-2">
+                            <div class="text-gray-500 text-sm">Cargando...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <a href="proximas-sesiones.html" class="text-primary hover:underline text-sm font-medium">
+                            Ver calendario completo →
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Libro del Mes -->
+            <div class="card">
+                <h2 class="text-xl font-bold mb-4">Libro del Mes</h2>
+                <div id="libro-del-mes">
+                    <div class="text-gray-500 text-center py-4">Cargando...</div>
+                </div>
+            </div>
+
+            <!-- Historial de Pagos -->
+            <div class="card">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">Historial de Pagos</h2>
+                    <a href="proximas-sesiones.html" class="text-primary hover:underline text-sm">Ver todas las sesiones</a>
+                </div>
+                <div id="historial-pagos" class="space-y-2">
+                    <div class="text-gray-500 text-center py-4">Cargando...</div>
+                </div>
+            </div>
+
+            <!-- Banner: Sin Suscripcion -->
+            <div id="info-sin-suscripcion" class="hidden card bg-amber-50 border border-amber-200">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="font-semibold text-amber-800 mb-1">No tienes una suscripcion activa</h3>
+                        <p class="text-sm text-amber-700">Suscribete para acceder a todas las sesiones, el libro del mes y contenido exclusivo.</p>
+                    </div>
+                    <button id="btn-suscribirse-dashboard" class="btn-primary whitespace-nowrap">
+                        Suscribirse Ahora
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="footer"></div>
+
+    <!-- Scripts en orden correcto -->
+    <script src="js/components.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            Auth.inicializarAuth();
+            Main.inicializarMain();
+            Dashboard.inicializarDashboard();
+        });
+    </script>
+</body>
+</html>

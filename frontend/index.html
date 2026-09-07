@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Club de Lectura Virtual</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#C7B293',
+                        secondary: '#9E8860',
+                        accent: '#F59E0B',
+                        bg: '#F8FAFC',
+                        text: '#1E293B',
+                        surface: '#FFFFFF',
+                        error: '#EF4444',
+                        success: '#10B981'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body class="min-h-screen flex flex-col">
+    <div id="header"></div>
+
+    <main class="flex-1">
+        <!-- Hero Section -->
+        <section class="bg-gradient-to-br from-primary to-secondary text-black py-20 md:py-32">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                <h1 class="text-4xl md:text-6xl font-bold mb-6">
+                    Club de Lectura
+                </h1>
+                <p class="text-xl md:text-2xl mb-8 text-black-100 max-w-3xl mx-auto">
+                    Únete a nuestra comunidad de lectores. Comparte opiniones, descubre nuevos libros y conecta con personas que comparten tu pasión.
+                </p>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="#precios" class="btn-accent text-lg">Únete Ahora - Primer Mes Gratis</a>
+                    <a href="sobre-nosotros.html" class="border-2 border-white text-white hover:bg-white hover:text-primary font-semibold py-3 px-6 rounded-lg transition-colors duration-200 text-lg">
+                        Conoce Más
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- ¿De qué se trata? -->
+        <section class="py-16 md:py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">¿De qué se trata?</h2>
+                <p class="section-subtitle mb-12">
+                    ¿Te gusta leer? ¿Te gusta compartir opiniones y escuchar a los demás? ¿Quisieras conocer gente que comparta tus aficiones? Estás en el lugar correcto.
+                </p>
+                
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="card text-center">
+                        <div class="text-5xl mb-4">📖</div>
+                        <h3 class="text-xl font-semibold mb-3">Lectura Guiada</h3>
+                        <p class="text-gray-600">Seleccionamos el libro del mes para que lo leas a tu ritmo con seguimiento y recursos complementarios.</p>
+                    </div>
+                    <div class="card text-center">
+                        <div class="text-5xl mb-4">💬</div>
+                        <h3 class="text-xl font-semibold mb-3">Sesiones Virtuales</h3>
+                        <p class="text-gray-600">Comparte tu opinión en nuestras sesiones mensuales virtuales con otros lectores apasionados.</p>
+                    </div>
+                    <div class="card text-center">
+                        <div class="text-5xl mb-4">🤝</div>
+                        <h3 class="text-xl font-semibold mb-3">Comunidad</h3>
+                        <p class="text-gray-600">Accede a grupos exclusivos en redes sociales para discutir y conectar con otros miembros.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pricing Section -->
+        <section id="precios" class="py-16 md:py-24 bg-gray-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">Nuestros Planes</h2>
+                <p class="section-subtitle mb-12">
+                    El primer mes es GRATIS. Sin compromiso, cancela cuando quieras.
+                </p>
+
+                <div class="max-w-lg mx-auto">
+                    <!-- Plan Suscripcion -->
+                    <div class="card flex flex-col border-2 border-accent relative">
+                        <div class="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                            <span class="bg-accent text-white text-sm font-semibold px-4 py-1 rounded-full">1er Mes Gratis</span>
+                        </div>
+                        <div class="text-center mb-6">
+                            <h3 class="text-xl font-semibold text-gray-800">Suscripcion Mensual</h3>
+                            <div class="mt-4">
+                                <span class="text-4xl font-bold text-primary">$80</span>
+                                <span class="text-gray-500">/mes</span>
+                            </div>
+                        </div>
+                        <ul class="space-y-3 mb-8">
+                            <li class="flex items-center text-gray-600">
+                                <svg class="w-5 h-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                Puedes acceder a 2 sesiones al mes
+                            </li>
+                            <li class="flex items-center text-gray-600">
+                                <svg class="w-5 h-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                Libro del mes y seguimiento
+                            </li>
+                            <li class="flex items-center text-gray-600">
+                                <svg class="w-5 h-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                Grupo de participantes
+                            </li>
+                            <li class="flex items-center text-gray-600">
+                                <svg class="w-5 h-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                Atencion personalizada
+                            </li>
+                            <li class="flex items-center text-gray-600">
+                                <svg class="w-5 h-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                </svg>
+                                Grabaciones de sesiones
+                            </li>
+                        </ul>
+                        <button class="btn-primary w-full" onclick="window.location.href='login.html'">
+                            Empezar Gratis
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Testimonios -->
+        <section class="py-16 md:py-24">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">Lo que dicen nuestros miembros</h2>
+                <p class="section-subtitle mb-12">
+                    Historias reales de personas que ya forman parte de nuestra comunidad.
+                </p>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="card">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-white font-bold text-lg">M</div>
+                            <div class="ml-3">
+                                <p class="font-semibold">Alejandro</p>
+                                <p class="text-sm text-gray-500">Miembro desde 2026</p>
+                            </div>
+                        </div>
+                        <p class="text-gray-600 italic">"Increíble experiencia. He conocido personas maravillosas y descubierto libros que nunca habría leído por mi cuenta."</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-secondary rounded-full flex items-center justify-center text-white font-bold text-lg">C</div>
+                            <div class="ml-3">
+                                <p class="font-semibold">Marisol</p>
+                                <p class="text-sm text-gray-500">Miembro desde 2026</p>
+                            </div>
+                        </div>
+                        <p class="text-gray-600 italic">"Las sesiones virtuales son fantásticas. Aprende mucho de las opiniones de otros y el ambiente siempre es respetuoso."</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-accent rounded-full flex items-center justify-center text-white font-bold text-lg">A</div>
+                            <div class="ml-3">
+                                <p class="font-semibold">David</p>
+                                <p class="text-sm text-gray-500">Miembro desde 2026</p>
+                            </div>
+                        </div>
+                        <p class="text-gray-600 italic">"El primer mes gratis me convenció. Gustosamente pienso seguir en esta gran comunidad"</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FAQ -->
+        <section class="py-16 md:py-24 bg-gray-50">
+            <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 class="section-title">Preguntas Frecuentes</h2>
+
+                <div class="space-y-4 mt-8">
+                    <div class="card">
+                        <h3 class="font-semibold text-lg mb-2">¿Realmente el primer mes es gratis?</h3>
+                        <p class="text-gray-600">Sí, todos los nuevos miembros tienen acceso gratuito durante su primer mes para que prueben el servicio sin compromiso.</p>
+                    </div>
+
+                    <div class="card">
+                        <h3 class="font-semibold text-lg mb-2">¿Puedo cancelar en cualquier momento?</h3>
+                        <p class="text-gray-600">Absolutamente. No hay contratos ni permanencia. Puedes cancelar tu suscripción cuando quieras desde tu cuenta.</p>
+                    </div>
+
+                    <div class="card">
+                        <h3 class="font-semibold text-lg mb-2">¿Cómo funcionan las sesiones virtuales?</h3>
+                        <p class="text-gray-600">Las sesiones se realizan por videoconferencia en google meet. Tendrás diferentes horarios para elegir el que mejor se adapte a ti.</p>
+                    </div>
+
+                    <div class="card">
+                        <h3 class="font-semibold text-lg mb-2">¿Qué pasa si no puedo asistir a una sesión?</h3>
+                        <p class="text-gray-600">Siempre ponemos a disposición la grabación de cada sesión y un resumen para que puedas estar al día.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA Final -->
+        <section class="py-16 md:py-24 bg-gradient-to-r from-primary to-secondary">
+            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">
+                <h2 class="text-3xl md:text-4xl font-bold mb-6">¿Listo para empezar?</h2>
+                <p class="text-xl mb-8 text-blue-100">Únete a nuestro club de lectores que ya disfrutan de nuestra comunidad. El primer mes es GRATIS.</p>
+                <a href="#precios" class="btn-accent text-lg inline-block">Únete Ahora</a>
+            </div>
+        </section>
+    </main>
+
+    <div id="footer"></div>
+
+    <script src="js/components.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/main.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            Auth.inicializarAuth();
+            Main.inicializarMain();
+        });
+    </script>
+</body>
+</html>

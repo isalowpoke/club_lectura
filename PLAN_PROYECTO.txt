@@ -1,0 +1,449 @@
+=============================================================
+PLAN DE PROYECTO - CLUB DE LECTURA PAGO
+=============================================================
+
+Resumen del proyecto:
+- Club de lectura con suscripcion mensual + microtransacciones (sesiones extra)
+- Sin almacenar datos personales (solo email para identificar cuenta)
+- 50-200 miembros iniciales
+- Ubicacion: LATAM
+- Presupuesto hosting: Lo mas barato posible (idealmente gratis)
+- Autenticacion: Login con Google (OAuth)
+
+=============================================================
+1. STACK TECNOLOGICO RECOMENDADO
+=============================================================
+
+FRONTEND:
+  - HTML5 + CSS3 + JavaScript vanilla
+  - Framework CSS: Tailwind CSS (rapido de aprender, moderno)
+  - No se necesita framework de JS pesado (React, Vue) para este tamano
+
+BACKEND:
+  - Node.js + Express.js
+  - Razon: Ya estas en el mundo JS, es el camino mas natural
+  - Sirve como API REST que conecta frontend con servicios externos
+
+BASE DE DATOS + AUTH:
+  - Supabase (https://supabase.com)
+  - Plan GRATIS incluye:
+    * PostgreSQL (base de datos relacional)
+    * Autenticacion con Google OAuth integrada
+    * 500 MB de almacenamiento
+    * 50,000 usuarios activos mensuales
+    * API REST automatica
+  - NO necesitas configurar OAuth manualmente, Supabase lo hace
+
+PASARELA DE PAGO:
+  - Mercado Pago (https://mercadopago.com)
+  - Razon: Ideal para LATAM
+    * Acepta tarjetas de credito/debito locales
+    * Acepta PSE, OXXO, Rapipago, etc.
+    * Soporta suscripciones recurrentes
+    * Soporta pagos unicos (microtransacciones)
+    * Comision competitiva en LATAM
+  - Alternativa: Stripe (disponible en Mexico, Brasil, Colombia)
+    * Mejor documentacion tecnica
+    * API mas robusta
+    * Pero menos metodos de pago locales en LATAM
+
+HOSTING (FRONTEND):
+  - Netlify (https://netlify.com) - GRATIS
+    * Hosting estatico para HTML/CSS/JS
+    * Deploy automatico desde GitHub
+    * Certificado SSL incluido
+    * Dominio personalizado gratis
+
+HOSTING (BACKEND - API):
+  - Railway (https://railway.app) - Gratis hasta cierto uso
+    * $5 de credito mensual gratis
+    * Suficiente para 50-200 usuarios
+  - Alternativa: Render (https://render.com)
+    * Plan gratuito disponible
+    * Se duerme tras inactividad (normal para poco uso)
+
+=============================================================
+2. ESTRUCTURA DE ARCHIVOS DEL PROYECTO
+=============================================================
+
+club-lectura/
+|
+|-- frontend/                    # Carpeta para el sitio web estatico
+|   |-- index.html               # Pagina principal (ya existe)
+|   |-- sobre-nosotros.html      # Acerca de nosotros (ya existe)
+|   |-- contacto.html            # Contacto (ya existe)
+|   |-- precios.html             # Pagina de planes y precios
+|   |-- dashboard.html           # Panel del usuario suscrito
+|   |-- login.html               # Pagina de login
+|   |-- proximas-sesiones.html   # Calendario de sesiones
+|   |-- sesion-especial.html     # Compra de sesiones extra
+|   |-- css/
+|   |   |-- styles.css           # Estilos principales
+|   |   |-- dashboard.css        # Estilos del panel de usuario
+|   |-- js/
+|   |   |-- main.js              # Logica general (menu, navegacion)
+|   |   |-- auth.js              # Manejo de login con Google via Supabase
+|   |   |-- dashboard.js         # Logica del panel de usuario
+|   |   |-- pagos.js             # Integracion con Mercado Pago
+|   |-- img/                     # Imagenes, logos, etc.
+|
+|-- backend/                     # Carpeta para la API
+|   |-- package.json             # Dependencias del servidor
+|   |-- server.js                # Archivo principal de Express
+|   |-- .env                     # Variables de entorno (NO subir a git)
+|   |-- routes/
+|   |   |-- auth.js              # Rutas de autenticacion
+|   |   |-- pagos.js             # Rutas de pago (webhooks de Mercado Pago)
+|   |   |-- sesiones.js          # Rutas de sesiones del club
+|   |-- middleware/
+|   |   |-- verificar-suscripcion.js  # Middleware para proteger rutas
+|   |-- services/
+|       |-- supabase.js          # Conexion a Supabase
+|       |-- mercadopago.js       # Conexion a Mercado Pago
+|
+|-- .gitignore                   # Ignorar node_modules, .env, etc.
+|-- README.md                    # Documentacion basica
+|-- AGENTS.md                    # Convenciones y reglas del proyecto
+|-- PLAN_PROYECTO.txt            # Este archivo
+
+=============================================================
+3. MODELO DE BASE DE DATOS (Supabase)
+=============================================================
+
+Tabla: usuarios
+  - id            UUID (generado por Supabase Auth)
+  - email         TEXT (del login con Google)
+  - rol           TEXT ('free', 'suscriptor', 'admin')
+  - fecha_registro TIMESTAMP
+  - mp_customer_id TEXT (ID del cliente en Mercado Pago)
+
+Tabla: suscripciones
+  - id            SERIAL PRIMARY KEY
+  - usuario_id    UUID (FK -> usuarios.id)
+  - plan          TEXT ('mensual')
+  - estado        TEXT ('activa', 'cancelada', 'vencida')
+  - mp_subscription_id TEXT (ID de suscripcion en Mercado Pago)
+  - fecha_inicio  TIMESTAMP
+  - fecha_fin     TIMESTAMP
+  - precio        DECIMAL
+
+Tabla: sesiones
+  - id            SERIAL PRIMARY KEY
+  - titulo        TEXT
+  - descripcion   TEXT
+  - fecha         TIMESTAMP
+  - hora          TIME
+  - link_reunion  TEXT (enlace de Zoom/Meet)
+  - tipo          TEXT ('regular', 'especial')
+  - precio        DECIMAL (0 si es regular, precio si es especial)
+  - imagen_url    TEXT
+
+Tabla: libros
+  - id            SERIAL PRIMARY KEY
+  - titulo        TEXT
+  - autor         TEXT
+  - genero        TEXT
+  - descripcion   TEXT
+  - imagen_url    TEXT
+  - mes_asignado  TEXT (ej: 'Julio 2026')
+  - sesion_id     INT (FK -> sesiones.id)
+
+Tabla: compras_sesiones_extra
+  - id            SERIAL PRIMARY KEY
+  - usuario_id    UUID (FK -> usuarios.id)
+  - sesion_id     INT (FK -> sesiones.id)
+  - monto         DECIMAL
+  - fecha_compra  TIMESTAMP
+  - mp_payment_id TEXT
+
+Tabla: registros_sesiones
+  - id            SERIAL PRIMARY KEY
+  - usuario_id    UUID (FK -> usuarios.id)
+  - sesion_id     INT (FK -> sesiones.id)
+  - asistio       BOOLEAN
+
+=============================================================
+4. MODELO DE PAGO - SUSCRIPCION + MICROTRANSACCIONES
+=============================================================
+
+SUSCRIPCION MENSUAL (via Mercado Pago):
+  - Precio: $250 MXN/mes (ajustable)
+  - Incluye:
+    * Acceso a todas las sesiones regulares mensuales
+    * Acceso al libro del mes
+    * Grupo de participantes (redes sociales)
+    * Atencion privada
+    * Grabaciones de sesiones anteriores
+  - Primer mes gratis (trial)
+  - Cancelacion en cualquier momento
+
+MICROTRANSACCIONES - SESIONES EXTRA:
+  - Sesiones especiales con autores invitados
+  - Talleres de escritura
+  - Sesiones de generos especificos
+  - Book talks extra
+  - Precio por sesion: $50-100 MXN (ajustable)
+  - Pago unico, no requiere suscripcion
+
+FLUJO DE PAGO:
+  1. Usuario nuevo -> Click en "Unete ya!" -> Login con Google
+  2. Supabase crea la cuenta (solo email)
+  3. Redirige a checkout de Mercado Pago (suscripcion)
+  4. Mercado Pago procesa el pago
+  5. Webhook notifica al backend -> actualiza estado en BD
+  6. Usuario accede al dashboard con contenido
+
+=============================================================
+5. FLUJO DE AUTENTICACION (Sin guardar datos personales)
+=============================================================
+
+1. Usuario hace click en "Iniciar sesion con Google"
+2. Supabase maneja el popup de Google OAuth
+3. Google retorna: email + ID unico de Google
+4. Supabase crea registro en tabla "usuarios" con:
+   - id (UUID unico)
+   - email (unico dato personal necesario)
+   - rol: 'free'
+5. Se guarda session en localStorage
+6. El backend verifica el token JWT en cada peticion protegida
+
+NO se guarda:
+  - Nombre completo
+  - Numero de telefono
+  - Domicilio
+  - Datos de tarjeta
+  - Nada mas alla del email
+
+=============================================================
+6. PAGINAS Y FUNCIONALIDADES
+=============================================================
+
+A) PAGINA PRINCIPAL (index.html)
+   - Hero section con llamada a la accion
+   - Que es el club (texto existente)
+   - Planes y precios (cards existentes)
+   - Proximo libro del mes
+   - Testimonios
+   - Boton "Unete ya" -> checkout
+
+B) PRECIOS (precios.html)
+   - Comparativa: Suscripcion vs Sesiones extra
+   - Desglose de beneficios
+   - FAQ de precios
+   - Boton de suscripcion
+
+C) LOGIN (login.html)
+   - Boton grande "Continuar con Google"
+   - No hay formulario de email/password
+   - Texto explicativo: "No guardamos tus datos personales"
+
+D) DASHBOARD (dashboard.html) [REQUIERE SUSCRIPCION]
+   - Resumen del usuario (solo email visible)
+   - Estado de suscripcion
+   - Libro actual del mes
+   - Proxima sesion (fecha, hora, enlace)
+   - Historial de sesiones asistidas
+   - Boton para sesiones extra disponibles
+
+E) SESIONES (proximas-sesiones.html) [REQUIERE SUSCRIPCION]
+   - Calendario de sesiones regulares (incluidas en suscripcion)
+   - Sesiones especiales disponibles (con precio)
+   - Opcion de compra para sesiones extra
+   - Filtro por tipo de sesion
+
+F) SOBRE NOSOTROS (sobre-nosotros.html - ya existe)
+   - Mejorar el contenido existente
+
+G) CONTACTO (contacto.html - ya existe)
+   - Formulario basico (nombre, mensaje, email)
+   - Redes sociales
+   - WhatsApp directo
+
+=============================================================
+7. PASOS DE IMPLEMENTACION (EN ORDEN)
+=============================================================
+
+FASE 1: CONFIGURACION INICIAL (Dias 1-2)
+  1.1  Crear cuenta en Supabase (gratis)
+  1.2  Crear proyecto en Supabase
+  1.3  Crear tablas de la base de datos (ver seccion 3)
+  1.4  Habilitar auth con Google en Supabase
+  1.5  Crear cuenta en Mercado Pago (sandbox para pruebas)
+  1.6  Crear cuenta en Netlify (gratis)
+  1.7  Crear cuenta en Railway o Render (gratis)
+  1.8  Inicializar repositorio Git con .gitignore
+
+FASE 2: ESTRUCTURA DEL PROYECTO (Dia 2)
+  2.1  Crear estructura de carpetas (ver seccion 2)
+  2.2  Crear package.json para el backend
+  2.3  Instalar dependencias: express, cors, dotenv,
+       @supabase/supabase-js, mercadopago
+  2.4  Crear archivo .env con credenciales (NO subir a git)
+  2.5  Configurar server.js basico con Express
+
+FASE 3: FRONTEND - MAQUETACION (Dias 3-5)
+  3.1  Instalar y configurar Tailwind CSS
+  3.2  Crear estructura comun (header/footer) reutilizable
+  3.3  Estilizar index.html (hero, cards de precio)
+  3.4  Crear y estilizar precios.html
+  3.5  Crear y estilizar login.html (boton Google)
+  3.6  Crear y estilizar dashboard.html
+  3.7  Crear y estilizar proximas-sesiones.html
+  3.8  Crear y estilizar sesion-especial.html
+  3.9  Mejorar sobre-nosotros.html
+  3.10 Mejorar contacto.html
+  3.11 Hacer todo responsive (mobile-first)
+
+FASE 4: FRONTEND - JAVASCRIPT (Dias 5-7)
+  4.1  auth.js: Integrar Supabase JS SDK
+  4.2  auth.js: Funcion login con Google
+  4.3  auth.js: Funcion logout
+  4.4  auth.js: Verificar si esta logueado
+  4.5  main.js: Menu responsive, navegacion
+  4.6  dashboard.js: Cargar datos del usuario
+  4.7  dashboard.js: Mostrar suscripcion activa
+  4.8  pagos.js: Redirigir a checkout de Mercado Pago
+  4.9  pagos.js: Comprar sesion extra
+
+FASE 5: BACKEND - API BASICA (Dias 7-9)
+  5.1  Configurar server.js con Express completo
+  5.2  Conectar a Supabase desde el backend
+  5.3  Crear ruta POST /api/auth/webhook
+       (cuando Supabase crea usuario nuevo)
+  5.4  Crear middleware verificar-suscripcion.js
+  5.5  Crear ruta GET /api/usuario/estado
+       (verificar si tiene suscripcion activa)
+  5.6  Crear ruta GET /api/sesiones
+       (listar proximas sesiones)
+  5.7  Crear ruta GET /api/libros
+       (libro actual y anteriores)
+
+FASE 6: BACKEND - INTEGRACION MERCADO PAGO (Dias 9-12)
+  6.1  Configurar SDK de Mercado Pago en el backend
+  6.2  Crear ruta POST /api/pagos/suscripcion
+       (crear suscripcion en Mercado Pago)
+  6.3  Crear ruta POST /api/pagos/webhook
+       (recibir notificaciones de Mercado Pago)
+  6.4  Crear ruta POST /api/pagos/sesion-extra
+       (pago unico por sesion adicional)
+  6.5  Crear ruta POST /api/pagos/cancelar
+       (cancelar suscripcion)
+  6.6  Manejar estados: aprobado, rechazado, pendiente
+  6.7  Actualizar tabla suscripciones al recibir webhook
+
+FASE 7: DASHBOARD COMPLETO (Dias 12-14)
+  7.1  Conectar dashboard.html con API
+  7.2  Mostrar informacion real del usuario
+  7.3  Listar proximas sesiones (con enlace si esta suscrito)
+  7.4  Mostrar sesiones extra disponibles para compra
+  7.5  Historial de pagos
+  7.6  Opcion de cancelar suscripcion
+  7.7  Proteger rutas que requieren suscripcion
+
+FASE 8: CONTENIDO INICIAL (Dias 14-16)
+  8.1  Crear 3-5 sesiones iniciales en la BD
+  8.2  Agregar libro del mes
+  8.3  Crear al menos 1 sesion especial de prueba
+  8.4  Llenar contenido textual del sitio
+
+FASE 9: PRUEBAS (Dias 16-18)
+  9.1  Probar login con Google (sandbox de Supabase)
+  9.2  Probar flujo completo de suscripcion
+       (Mercado Pago en modo sandbox/test)
+  9.3  Probar compra de sesion extra
+  9.4  Probar cancelacion de suscripcion
+  9.5  Probar que usuarios sin suscripcion no
+       acceden a contenido premium
+  9.6  Probar responsive en movil
+  9.7  Probar en diferentes navegadores
+
+FASE 10: DEPLOY (Dia 18-19)
+  10.1 Subir frontend a Netlify
+  10.2 Subir backend a Railway/Render
+  10.3 Configurar variables de entorno en hosting
+  10.4 Configurar dominio personalizado (opcional)
+  10.5 Cambiar Mercado Pago de sandbox a produccion
+  10.6 Verificar que todo funcione en produccion
+
+=============================================================
+8. CREDENCIALES Y CUENTAS NECESARIAS
+=============================================================
+
+Crear cuentas en:
+  [ ] Supabase (https://supabase.com) - Gratis
+  [ ] Mercado Pago (https://mercadopago.com) - Gratis
+  [ ] Netlify (https://netlify.com) - Gratis
+  [ ] Railway (https://railway.app) - Gratis (con credito)
+  [ ] Google Cloud Console (para OAuth) - Gratis
+  [ ] GitHub (para repositorio) - Gratis
+
+Variables de entorno necesarias (.env):
+  SUPABASE_URL=tu_url_de_supabase
+  SUPABASE_ANON_KEY=tu_clave_publica
+  SUPABASE_SERVICE_KEY=tu_clave_privada (SOLO backend)
+  MERCADOPAGO_ACCESS_TOKEN=tu_token
+  MERCADOPAGO_PUBLIC_KEY=tu_clave_publica
+  MERCADOPAGO_WEBHOOK_SECRET=tu_secreto
+  PORT=3000
+  FRONTEND_URL=https://tu-sitio.netlify.app
+
+=============================================================
+9. CONSIDERACIONES IMPORTANTES
+=============================================================
+
+SEGURIDAD:
+  - NUNCA subir .env a GitHub
+  - Usar .gitignore correctamente
+  - Verificar tokens JWT en cada peticion protegida
+  - Sanitizar inputs del usuario
+  - Usar HTTPS en produccion (Netlify lo da gratis)
+
+SIN DATOS PERSONALES:
+  - El unico dato guardado es el email (necesario para identificar)
+  - No hay formulario de registro tradicional
+  - No se guarda nombre, telefono, direccion
+  - Google se encarga de la autenticacion
+
+ESCALABILIDAD:
+  - Supabase plan gratis soporta 50,000 usuarios
+  - Mercado Pago no tiene limite de transacciones
+  - Si creces mas de 200 usuarios, considerar upgrade
+    de hosting (Railway/Render plan pago ~$5-20 USD/mes)
+
+BACKUPS:
+  - Supabase hace backups automaticos en plan gratis
+  - Puedes exportar datos manualmente desde el dashboard
+  - Considerar backup semanal del codigo en GitHub
+
+=============================================================
+10. PRESUPUESTO ESTIMADO MENSUAL
+=============================================================
+
+  Supabase:      $0  (plan gratis)
+  Netlify:       $0  (plan gratis)
+  Railway:       $0  (credito gratis suficiente)
+  Mercado Pago:  Comision por transaccion (~3.5% + IVA fijo)
+  -------------------------------------------------------
+  TOTAL FIJO:    $0 USD/mes
+  + Comisiones de Mercado Pago por cada pago recibido
+
+  Si necesitas upgrade despues de crecer:
+  - Railway Pro: ~$5 USD/mes
+  - Supabase Pro: ~$25 USD/mes
+  - Total potencial: ~$30 USD/mes para cientos de usuarios
+
+=============================================================
+11. TECNOLOGIAS A APRENDER (EN ORDEN DE PRIORIDAD)
+=============================================================
+
+  1. HTML/CSS basico (ya lo tienes)
+  2. JavaScript basico (variables, funciones, DOM)
+  3. Fetch API (comunicacion frontend-backend)
+  4. Supabase (auth + base de datos)
+  5. Express.js (backend basico)
+  6. Mercado Pago SDK
+  7. Tailwind CSS (estilos rapidos)
+
+=============================================================
+FIN DEL PLAN
+=============================================================

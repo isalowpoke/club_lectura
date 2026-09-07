@@ -1,0 +1,337 @@
+// auth.js - Autenticacion con Supabase
+// Configuracion de Supabase
+const SUPABASE_URL = 'https://sktkxbmrktgxeduwnunu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrdGt4Ym1ya3RneGVkdXdudW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NjgzNzMsImV4cCI6MjEwMDE0NDM3M30.rytE9Be4E8vPQsuGj3sp8bcRiPlF_-MjSmDHNgnWPmA';
+const BACKEND_URL = 'http://localhost:3000';
+
+// Inicializar cliente Supabase (global)
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+// ============================================
+// UTILIDADES
+// ============================================
+
+// Sanitizar HTML para prevenir XSS
+function sanitizarHTML(texto) {
+  if (!texto) return '';
+  const div = document.createElement('div');
+  div.textContent = texto;
+  return div.innerHTML;
+}
+
+function mostrarNotificacion(mensaje, tipo = 'info') {
+  const notificacion = document.createElement('div');
+  const colores = {
+    success: 'bg-green-500',
+    error: 'bg-red-500',
+    info: 'bg-blue-500'
+  };
+  notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 ${colores[tipo] || colores.info} text-white`;
+  notificacion.textContent = mensaje;
+  document.body.appendChild(notificacion);
+  
+  setTimeout(() => notificacion.remove(), 3000);
+}
+
+function formatearMoneda(monto) {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 0
+  }).format(monto);
+}
+
+function formatearFecha(fechaStr) {
+  if (!fechaStr) return '-';
+  const fecha = new Date(fechaStr);
+  return fecha.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+// ============================================
+// AUTENTICACION
+// ============================================
+
+async function iniciarSesionGoogle() {
+  if (!supabaseClient) {
+    mostrarNotificacion('Error: Supabase no disponible', 'error');
+    return;
+  }
+  
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/dashboard.html`
+    }
+  });
+  
+  if (error) {
+    console.error('Error al iniciar sesion:', error);
+    mostrarNotificacion('Error al iniciar sesion', 'error');
+  }
+}
+
+async function cerrarSesion() {
+  if (!supabaseClient) return;
+  
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    console.error('Error al cerrar sesion:', error);
+    mostrarNotificacion('Error al cerrar sesion', 'error');
+    return;
+  }
+  
+  localStorage.removeItem('clubLecturaSesion');
+  mostrarNotificacion('Sesion cerrada correctamente', 'success');
+  window.location.href = 'index.html';
+}
+
+async function verificarSesion() {
+  if (!supabaseClient) return null;
+  
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    localStorage.setItem('clubLecturaSesion', JSON.stringify(session));
+    return session;
+  }
+  return null;
+}
+
+function obtenerUsuario() {
+  const sesionStr = localStorage.getItem('clubLecturaSesion');
+  if (!sesionStr) return null;
+  
+  try {
+    const sesion = JSON.parse(sesionStr);
+    return sesion?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+function obtenerToken() {
+  const sesionStr = localStorage.getItem('clubLecturaSesion');
+  if (!sesionStr) return null;
+  
+  try {
+    const sesion = JSON.parse(sesionStr);
+    return sesion?.access_token || null;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================
+// API DEL BACKEND
+// ============================================
+
+async function apiRequest(endpoint, options = {}) {
+  const token = obtenerToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+  
+  const result = await response.json();
+  
+  if (!response.ok || result.success === false) {
+    return { data: null, error: result.error || 'Error desconocido' };
+  }
+  
+  return { data: result.data, error: null };
+}
+
+// ============================================
+// ESTADO DE SUSCRIPCION
+// ============================================
+
+let estadoSuscripcion = null;
+
+async function verificarEstadoSuscripcion() {
+  try {
+    const { data, error } = await apiRequest('/api/pagos/estado');
+    if (error) throw error;
+    
+    estadoSuscripcion = data;
+    return data;
+  } catch (error) {
+    console.error('Error verificando suscripcion:', error);
+    return null;
+  }
+}
+
+function tieneSuscripcionActiva() {
+  return estadoSuscripcion?.tiene_suscripcion && estadoSuscripcion?.estado === 'activa';
+}
+
+// ============================================
+// PAGOS
+// ============================================
+
+async function crearPagoSuscripcion() {
+  try {
+    const { data, error } = await apiRequest('/api/pagos/suscripcion', {
+      method: 'POST',
+    });
+    
+    if (error) throw error;
+    
+    if (data?.init_point) {
+      window.location.href = data.init_point;
+    }
+  } catch (error) {
+    console.error('Error creando pago:', error);
+    mostrarNotificacion('Error al iniciar pago', 'error');
+  }
+}
+
+async function crearPagoSesionExtra(sesionId, monto) {
+  try {
+    const { data, error } = await apiRequest('/api/pagos/sesion-extra', {
+      method: 'POST',
+      body: JSON.stringify({ sesion_id: sesionId, monto }),
+    });
+    
+    if (error) throw error;
+    
+    if (data?.init_point) {
+      window.location.href = data.init_point;
+    }
+  } catch (error) {
+    console.error('Error creando pago sesion extra:', error);
+    mostrarNotificacion('Error al iniciar pago', 'error');
+  }
+}
+
+async function cancelarSuscripcion() {
+  if (!confirm('Seguro que deseas cancelar tu suscripcion?')) return false;
+  
+  try {
+    const { data, error } = await apiRequest('/api/pagos/cancelar', {
+      method: 'POST',
+    });
+    
+    if (error) throw error;
+    
+    mostrarNotificacion('Suscripcion cancelada', 'success');
+    estadoSuscripcion = { tiene_suscripcion: false, estado: null };
+    return true;
+  } catch (error) {
+    console.error('Error cancelando suscripcion:', error);
+    mostrarNotificacion('Error al cancelar suscripcion', 'error');
+    return false;
+  }
+}
+
+// ============================================
+// SESIONES
+// ============================================
+
+async function obtenerProximasSesiones() {
+  try {
+    const { data, error } = await apiRequest('/api/sesiones');
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error obteniendo sesiones:', error);
+    return [];
+  }
+}
+
+async function obtenerLibros() {
+  try {
+    const { data, error } = await apiRequest('/api/sesiones/libros');
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error obteniendo libros:', error);
+    return [];
+  }
+}
+
+async function obtenerHistorialPagos() {
+  try {
+    const { data, error } = await apiRequest('/api/pagos/historial');
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error obteniendo historial:', error);
+    return [];
+  }
+}
+
+// ============================================
+// INICIALIZACION
+// ============================================
+
+function configurarEventosAuth() {
+  const btnLogin = document.getElementById('btn-login');
+  const btnLogout = document.getElementById('btn-logout');
+  const btnLoginMobile = document.getElementById('btn-login-mobile');
+  
+  if (btnLogin) {
+    btnLogin.addEventListener('click', (e) => {
+      e.preventDefault();
+      iniciarSesionGoogle();
+    });
+  }
+  
+  if (btnLoginMobile) {
+    btnLoginMobile.addEventListener('click', (e) => {
+      e.preventDefault();
+      iniciarSesionGoogle();
+    });
+  }
+  
+  if (btnLogout) {
+    btnLogout.addEventListener('click', (e) => {
+      e.preventDefault();
+      cerrarSesion();
+    });
+  }
+}
+
+function inicializarAuth() {
+  configurarEventosAuth();
+  verificarSesion().then(() => {
+    if (typeof actualizarHeaderAuth === 'function') {
+      actualizarHeaderAuth();
+    }
+  });
+}
+
+// Exponer globalmente
+window.Auth = {
+  inicializarAuth,
+  verificarSesion,
+  obtenerUsuario,
+  obtenerToken,
+  iniciarSesionGoogle,
+  cerrarSesion,
+  verificarEstadoSuscripcion,
+  tieneSuscripcionActiva,
+  crearPagoSuscripcion,
+  crearPagoSesionExtra,
+  cancelarSuscripcion,
+  obtenerProximasSesiones,
+  obtenerLibros,
+  obtenerHistorialPagos,
+  apiRequest,
+  formatearMoneda,
+  formatearFecha,
+  mostrarNotificacion,
+  sanitizarHTML,
+  BACKEND_URL,
+};

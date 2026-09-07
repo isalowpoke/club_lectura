@@ -1,0 +1,30 @@
+# ============================================
+# GITIGNORE - CLUB DE LECTURA
+# ============================================
+
+# Dependencias
+node_modules/
+npm-debug.log*
+
+# Variables de entorno (NUNCA subir a git)
+.env
+.env.local
+.env.*.local
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Build
+dist/
+build/
