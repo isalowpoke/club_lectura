@@ -3,11 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
 import sesionesRoutes from './routes/sesiones.js';
 import pagosRoutes from './routes/pagos.js';
 
-dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)) });
 
 const app = express();
 const PORT = process.env.PORT || 3000;

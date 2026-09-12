@@ -1,8 +1,9 @@
 import mercadopago from 'mercadopago';
 import { supabaseClient } from './supabase.js';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
 
-dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 console.log('[MP] FRONTEND_URL:', FRONTEND_URL);
