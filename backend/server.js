@@ -26,9 +26,15 @@ app.use(helmet({
 
 // CORS - Permitir origenes del frontend (dev + produccion)
 // FRONTEND_URLS acepta lista CSV: "http://localhost:8080,https://dominio"
+// El dominio de produccion de Netlify se incluye siempre como respaldo
+// (evita que un env mal configurado en Railway rompa el acceso en produccion).
+const PROD_FRONTEND = 'https://clublecturahispano.netlify.app';
 const origenesPermitidos = process.env.FRONTEND_URLS
   ? process.env.FRONTEND_URLS.split(',').map((o) => o.trim()).filter(Boolean)
   : [process.env.FRONTEND_URL || 'http://localhost:8080'];
+if (!origenesPermitidos.includes(PROD_FRONTEND)) {
+  origenesPermitidos.push(PROD_FRONTEND);
+}
 
 app.use(cors({
   origin: origenesPermitidos,
