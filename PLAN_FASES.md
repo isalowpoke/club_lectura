@@ -144,18 +144,67 @@ Se descarta el camino de `card_token_id`/formulario de tarjeta propio (eliminado
 
 ---
 
+## Feature A - "Asegura tu mes" (suscripcion programada al corte de la prueba)
+**Objetivo:** que el usuario pueda pagar durante el mes gratis SIN perderlo: el primer
+cobro se agenda exactamente al terminar la prueba y MP cobra automatico en el corte.
+
+**Cambios (backend):**
+- `services/mercadopago.js`:
+  - `crearPreapprovalSuscripcion` consulta la prueba gratis vigente
+    (`plan='gratis'`, `status='active'`, `end_date >= now`) y si existe agrega
+    `auto_recurring.start_date = end_date` de la prueba. MP exige el formato
+    con offset `-00:00` (rechaza `Z` y `+HH:MM`).
+  - `procesarWebhookSuscripcionCreacion`: si hay prueba vigente crea una fila
+    SEPARADA `mensual/pending` (con `mp_sub_id`, `init_date` = fecha de cobro)
+    SIN tocar la fila gratis. Sin prueba: conserva el comportamiento previo.
+  - `procesarPagoSuscripcion`: solo `approved` activa; cualquier otro estado queda
+    `pending` (MP reintenta) en vez de `cancelled`.
+  - `cancelarSuscripcion`: cancela preapproval `active` o `pending` (programado),
+    marca solo esa fila `cancelled` y no rompe la prueba gratis vigente.
+  - Helper `interpretarFechaUtc` (las columnas `init_date/end_date` son naive).
+- `routes/pagos.js` `/estado`:
+  - `estado` normalizado a `'activa'/'inactiva'` (corrige `tieneSuscripcionActiva()`).
+  - Nuevos campos: `en_prueba`, `pago_programado`, `pago_pendiente_cobro`,
+    `proxima_fecha_cobro` (UTC).
+  - Fechas normalizadas a UTC (antes naive -> corrimiento por tz del navegador).
+
+**Cambios (frontend):**
+- `dashboard.js`: prueba vigente -> CTA "Asegurar mi Mes (cobro al terminar el
+  gratis)"; programada -> banner verde con fecha del primer cobro + boton
+  "Cancelar suscripcion programada"; cobro fallido en el corte -> aviso amber
+  "Cobro pendiente - MP reintenta".
+- `precios.html`: boton dinamico sin sesion ("Empezar Gratis"), en prueba
+  ("Asegurar mi Mes"), programada (disabled), pago activo ("Gestionar en tu panel").
+
+**Verificado (token PROD + Supabase prod):**
+- Preapproval creado con `start_date == fin_prueba` (assert por instante) y
+  `back_url` https valido (MP rechaza http en PROD).
+- `subscription_created` -> fila `mensual/pending` separada, prueba intacta.
+- `cancelarSuscripcion` -> MP cancelado, programada `cancelled`, prueba sigue
+  activa, rol `free` sin cambios.
+- `/estado` (logica replicada, 5 escenarios): inicio prueba / prueba+programada /
+  cobro pendiente / prueba vencida / pago activo -> TODO OK.
+
+**Nota deploy:** `FRONTEND_URL` (https de Netlify) ES obligatoria en Railway: MP
+rechaza `back_url` http/localhost al crear preapproval en produccion.
+
+---
+
 ## Checklist al deploy (fuera de fases)
 - [x] Codigo commit-teado en `develop` y mergeado a `main`.
 - [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
-- [x] `package.json`: `engines.node >= 20`.
+- [x] `package.json`: `engines.node >= 22`.
 - [x] `config.js`: `BACKEND_URL=https://clublectura-production.up.railway.app`.
 - [x] CORS: dominio Netlify real incl. por codigo en `server.js` (respaldo al env).
 - [x] Webhook OAuth verificado: Supabase emite OAuth de Google con callback correcto y
       acepta `https://clublecturahispano.netlify.app/**` (E2E Playwright: el boton de
       login del sitio llega a accounts.google.com sin errores JS).
 - [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
-- [ ] Poner `MERCADOPAGO_WEBHOOK_SECRET` del panel de MP.
-- [ ] Habilitar **Suscripciones** en la aplicacion de MP y probar E2E.
+      *(verificado: el token PROD existente crea preferencias y preapprovals HTTP 201,
+      incl. `category_id=books` y `start_date` agendado).*
+- [x] `MERCADOPAGO_WEBHOOK_SECRET` activo en Railway (las peticiones sin firma dan 401).
+- [ ] Probar E2E con un pago real del dueño (autorizar el preapproval en el checkout y
+      reembolsar), y luego revisar `suscriptions`/`pagos`/`users` al llegar los webhooks.
 - [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
       `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
       correcto para codigos de email/redirects por defecto).

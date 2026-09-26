@@ -71,20 +71,36 @@
     <script src="js/main.js"></script>
     <script src="js/pagos.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            Auth.inicializarAuth();
+        document.addEventListener('DOMContentLoaded', async () => {
+            await Auth.inicializarAuth();
             Main.inicializarMain();
             Pagos.inicializarPagos();
             
             const btnPlan = document.getElementById('btn-plan-suscripcion');
-            if (btnPlan) {
-                btnPlan.addEventListener('click', () => {
-                    if (!Auth.obtenerUsuario()) {
-                        window.location.href = 'login.html';
-                    } else {
-                        Pagos.iniciarCheckoutSuscripcion();
-                    }
-                });
+            if (!btnPlan) return;
+            
+            const usuario = Auth.obtenerUsuario();
+            
+            if (!usuario) {
+                btnPlan.addEventListener('click', () => window.location.href = 'login.html');
+                return;
+            }
+            
+            const estado = await Auth.verificarEstadoSuscripcion();
+            
+            if (estado?.pago_programado) {
+                btnPlan.textContent = 'Suscripcion programada - 1er cobro en el corte';
+                btnPlan.disabled = true;
+                btnPlan.classList.add('opacity-50', 'cursor-not-allowed');
+            } else if (estado?.en_prueba) {
+                btnPlan.textContent = 'Asegurar mi Mes - el cobro inicia al terminar el gratis';
+                btnPlan.addEventListener('click', () => Pagos.iniciarCheckoutSuscripcion());
+            } else if (estado?.tiene_suscripcion) {
+                btnPlan.textContent = 'Gestionar en tu panel';
+                btnPlan.addEventListener('click', () => window.location.href = 'dashboard.html');
+            } else {
+                btnPlan.textContent = 'Suscribirme ahora - $80 MXN/mes';
+                btnPlan.addEventListener('click', () => Pagos.iniciarCheckoutSuscripcion());
             }
         });
     </script>

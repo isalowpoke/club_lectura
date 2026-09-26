@@ -7,7 +7,8 @@ import {
   procesarWebhookSuscripcionCreacion,
   procesarWebhookSuscripcionPagoAutorizado,
   procesarWebhookSuscripcionCancelada,
-  cancelarSuscripcion
+  cancelarSuscripcion,
+  interpretarFechaUtc
 } from '../services/mercadopago.js';
 import verificarFirmaWebhook from '../middleware/verificar-firma-webhook.js';
 
@@ -216,6 +217,7 @@ router.get('/estado', verificarUsuario, async (req, res) => {
     const usuarioId = req.usuario.id;
     const ahora = new Date().toISOString();
 
+    // Suscripcion vigente (gratis o de pago) que da acceso
     const { data: suscripcion, error } = await supabaseClient
       .from('suscriptions')
       .select('*')
@@ -231,14 +233,41 @@ router.get('/estado', verificarUsuario, async (req, res) => {
       return res.status(500).json({ success: false, error: 'Error al obtener estado' });
     }
 
+    // Suscripcion de pago programada o con cobro pendiente (durante/despues de la prueba)
+    const { data: pendiente } = await supabaseClient
+      .from('suscriptions')
+      .select('sub_id, init_date, end_date')
+      .eq('user_id', usuarioId)
+      .eq('plan', 'mensual')
+      .eq('status', 'pending')
+      .not('mp_sub_id', 'is', null)
+      .order('init_date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const ahoraMs = Date.now();
+    const pagoProgramado = !!pendiente && interpretarFechaUtc(pendiente.init_date).getTime() >= ahoraMs;
+    const pagoPendienteCobro = !!pendiente && !pagoProgramado;
+
+    const proximaCobro = pendiente?.init_date
+      || (suscripcion ? suscripcion.end_date : null);
+
     return res.json({
       success: true,
       data: {
         tiene_suscripcion: !!suscripcion,
-        estado: suscripcion?.status || null,
+        estado: suscripcion ? 'activa' : 'inactiva',
         plan: suscripcion?.plan || null,
-        fecha_fin: suscripcion?.end_date || null,
         precio: suscripcion?.price || null,
+        fecha_fin: suscripcion?.end_date
+          ? interpretarFechaUtc(suscripcion.end_date).toISOString()
+          : null,
+        en_prueba: suscripcion?.plan === 'gratis',
+        pago_programado: pagoProgramado,
+        pago_pendiente_cobro: pagoPendienteCobro,
+        proxima_fecha_cobro: proximaCobro
+          ? interpretarFechaUtc(proximaCobro).toISOString()
+          : null,
       }
     });
 

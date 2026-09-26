@@ -56,7 +56,33 @@ async function cargarEstadoSuscripcion() {
   
   const estado = await Auth.verificarEstadoSuscripcion();
   
+  // Sin acceso y sin nada programado
   if (!estado || !estado.tiene_suscripcion) {
+    // Primer cobro fallido en el corte: MP reintenta
+    if (estado?.pago_pendiente_cobro) {
+      if (container) {
+        container.innerHTML = `
+          <div class="flex items-center gap-2 text-amber-600 font-semibold">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            Cobro pendiente
+          </div>
+          <div class="text-sm text-gray-600 mt-2">El cobro de tu suscripcion no se pudo completar. Mercado Pago reintentara automaticamente y se te restaurara el acceso cuando se apruebe.</div>
+          <div class="text-sm text-gray-600">Fecha intentada: ${Auth.formatearFecha(estado.proxima_fecha_cobro)}</div>
+          <div class="text-xs text-amber-600 mt-1">Puedes cancelar la suscripcion para detener los reintentos.</div>
+        `;
+      }
+      
+      if (btnPagar) btnPagar.classList.add('hidden');
+      if (btnCancelar) {
+        btnCancelar.textContent = 'Cancelar suscripcion';
+        btnCancelar.classList.remove('hidden');
+      }
+      document.getElementById('info-sin-suscripcion')?.classList.add('hidden');
+      return;
+    }
+    
     if (container) {
       container.innerHTML = `
         <div class="flex items-center gap-2 text-red-600 font-semibold">
@@ -69,7 +95,10 @@ async function cargarEstadoSuscripcion() {
       `;
     }
     
-    if (btnPagar) btnPagar.classList.remove('hidden');
+    if (btnPagar) {
+      btnPagar.textContent = 'Suscribirse Ahora - $80 MXN/mes';
+      btnPagar.classList.remove('hidden');
+    }
     if (btnCancelar) btnCancelar.classList.add('hidden');
     
     document.getElementById('info-sin-suscripcion')?.classList.remove('hidden');
@@ -77,14 +106,70 @@ async function cargarEstadoSuscripcion() {
     return;
   }
   
-  if (container) {
-    const diasRestantes = estado.fecha_fin 
-      ? Math.ceil((new Date(estado.fecha_fin) - new Date()) / (1000 * 60 * 60 * 24))
-      : '-';
+  document.getElementById('info-sin-suscripcion')?.classList.add('hidden');
+  
+  const diasRestantes = estado.fecha_fin 
+    ? Math.ceil((new Date(estado.fecha_fin) - new Date()) / (1000 * 60 * 60 * 24))
+    : '-';
+  const fechaVencimiento = Auth.formatearFecha(estado.fecha_fin);
+  
+  // Suscripcion de pago programada durante la prueba gratis
+  if (estado.pago_programado) {
+    if (container) {
+      container.innerHTML = `
+        <div class="flex items-center gap-2 text-green-600 font-semibold">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          Suscripcion programada
+        </div>
+        <div class="text-sm text-gray-600 mt-2">Ya aseguraste tu mes. Tu mes gratis sigue vigente hasta el ${Auth.sanitizarHTML(fechaVencimiento)} (${diasRestantes} dias).</div>
+        <div class="text-sm text-gray-600">Primer cobro de $80 MXN: ${Auth.formatearFecha(estado.proxima_fecha_cobro)}</div>
+        <div class="text-xs text-amber-600 mt-1">Puedes cancelar la suscripcion programada antes del cobro sin cargos.</div>
+      `;
+    }
     
-    const esGratis = estado.plan === 'gratis';
-    const textoPlan = esGratis ? 'Mes Gratis' : `Plan ${Auth.sanitizarHTML(estado.plan || 'Mensual')}`;
-    const textoPrecio = esGratis ? 'Sin costo' : `${Auth.formatearMoneda(estado.precio || 80)}/mes`;
+    if (btnPagar) btnPagar.classList.add('hidden');
+    if (btnCancelar) {
+      btnCancelar.textContent = 'Cancelar suscripcion programada';
+      btnCancelar.classList.remove('hidden');
+    }
+    
+    return;
+  }
+  
+  // Prueba gratis vigente: CTA para asegurar el proximo mes
+  if (estado.en_prueba) {
+    if (container) {
+      container.innerHTML = `
+        <div class="flex items-center gap-2 text-green-600 font-semibold">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          Suscripcion Activa - Mes Gratis
+        </div>
+        <div class="text-sm text-gray-600 mt-2">Sin costo · Vence: ${Auth.sanitizarHTML(fechaVencimiento)} (${diasRestantes} dias)</div>
+        <div class="text-xs text-amber-600 mt-1">Asegura tu proximo mes: el cobro iniciara justo al terminar tu mes gratis.</div>
+      `;
+    }
+    
+    if (btnPagar) {
+      btnPagar.textContent = 'Asegurar mi Mes - cobro al terminar el gratis';
+      btnPagar.classList.remove('hidden');
+    }
+    if (btnCancelar) btnCancelar.classList.add('hidden');
+    
+    return;
+  }
+  
+  // Suscripcion de pago activa
+  const textoPlan = `Plan ${Auth.sanitizarHTML(estado.plan || 'Mensual')}`;
+  const textoPrecio = `${Auth.formatearMoneda(estado.precio || 80)}/mes`;
+  
+  if (container) {
+    const proximoCobro = estado.proxima_fecha_cobro
+      ? `<div class="text-sm text-gray-600">Proximo cobro: ${Auth.formatearFecha(estado.proxima_fecha_cobro)}</div>`
+      : '';
     
     container.innerHTML = `
       <div class="flex items-center gap-2 text-green-600 font-semibold">
@@ -94,15 +179,16 @@ async function cargarEstadoSuscripcion() {
         Suscripcion Activa
       </div>
       <div class="text-sm text-gray-600 mt-2">${textoPlan} - ${textoPrecio}</div>
-      <div class="text-sm text-gray-600">Vence: ${Auth.formatearFecha(estado.fecha_fin)} (${diasRestantes} dias)</div>
-      ${esGratis ? '<div class="text-xs text-amber-600 mt-1">Despues del mes gratis, suscribete para mantener el acceso</div>' : ''}
+      <div class="text-sm text-gray-600">Vence: ${Auth.sanitizarHTML(fechaVencimiento)} (${diasRestantes} dias)</div>
+      ${proximoCobro}
     `;
   }
   
   if (btnPagar) btnPagar.classList.add('hidden');
-  if (btnCancelar) btnCancelar.classList.remove('hidden');
-  
-  document.getElementById('info-sin-suscripcion')?.classList.add('hidden');
+  if (btnCancelar) {
+    btnCancelar.textContent = 'Cancelar Suscripcion';
+    btnCancelar.classList.remove('hidden');
+  }
 }
 
 // ============================================
