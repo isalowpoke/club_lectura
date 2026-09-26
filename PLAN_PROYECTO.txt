@@ -386,6 +386,8 @@ Variables de entorno necesarias (.env):
   MERCADOPAGO_WEBHOOK_SECRET=tu_secreto
   PORT=3000
   FRONTEND_URL=https://tu-sitio.netlify.app
+  CRON_SECRET=secreto_para_keep_alive (mismo valor en GitHub Secrets)
+  BACKEND_URL=https://tu-backend.railway.app (GitHub Secret para /api/keep-alive)
 
 =============================================================
 9. CONSIDERACIONES IMPORTANTES
