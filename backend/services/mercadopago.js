@@ -8,6 +8,21 @@ dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 console.log('[MP] FRONTEND_URL:', FRONTEND_URL);
 
+// Mercado Pago exige fechas con offset y solo acepta el signo '-' (ej: -00:00).
+// Se envia la hora UTC con offset -00:00 para pasar su validacion.
+function formatearFechaMercadoPago(fecha) {
+  return new Date(fecha).toISOString().replace('Z', '-00:00');
+}
+
+// Las columnas init_date/end_date son 'timestamp without time zone' (sin zona).
+// Semantically son UTC: se interpretan como UTC para evitar corrimientos por tz del servidor.
+export function interpretarFechaUtc(valor) {
+  if (!valor) return null;
+  const texto = String(valor).replace(' ', 'T');
+  const tieneZona = /(Z|[+-]\d{2}:\d{2})$/i.test(texto);
+  return tieneZona ? new Date(texto) : new Date(texto + 'Z');
+}
+
 export async function crearPreapprovalSuscripcion(usuarioId, email) {
   try {
     const body = {
@@ -23,7 +38,28 @@ export async function crearPreapprovalSuscripcion(usuarioId, email) {
       },
     };
 
-    console.log('[MP] Creando preapproval suscripcion...');
+    // Si el usuario tiene una prueba gratis vigente, el primer cobro se agenda
+    // para el dia en que termina la prueba: se respeta el mes gratis y el pago
+    // arranca en el corte (el usuario asegura el proximo mes).
+    const { data: prueba } = await supabaseClient
+      .from('suscriptions')
+      .select('sub_id, end_date')
+      .eq('user_id', usuarioId)
+      .eq('plan', 'gratis')
+      .eq('status', 'active')
+      .gte('end_date', new Date().toISOString())
+      .maybeSingle();
+
+    if (prueba?.end_date) {
+      body.auto_recurring.start_date = formatearFechaMercadoPago(interpretarFechaUtc(prueba.end_date));
+    }
+
+    console.log(
+      '[MP] Creando preapproval suscripcion...',
+      body.auto_recurring.start_date
+        ? `primer cobro programado: ${body.auto_recurring.start_date}`
+        : 'cobro inmediato'
+    );
     const response = await mercadopago.preapproval.create(body);
     console.log('[MP] Preapproval OK, id:', response.body?.id);
     return { data: response.body, error: null };
@@ -190,8 +226,51 @@ export async function procesarWebhookSuscripcionCreacion(webhookData) {
     throw new Error('No se encontro id de preapproval en webhook');
   }
 
-  const { usuarioId } = await vincularPreapprovalConUsuario(preapprovalId);
+  const { preapproval, usuarioId } = await vincularPreapprovalConUsuario(preapprovalId);
 
+  // Fecha del primer cobro (se agenda al crear el preapproval durante la prueba gratia)
+  const startDate = preapproval.auto_recurring?.start_date || null;
+
+  // Prueba gratis vigente: NO tocar la fila de la prueba. Se crea (o actualiza) una
+  // fila separada 'mensual/pending' con el primer cobro programado al fin de la prueba.
+  const { data: prueba } = await supabaseClient
+    .from('suscriptions')
+    .select('sub_id')
+    .eq('user_id', usuarioId)
+    .eq('plan', 'gratis')
+    .eq('status', 'active')
+    .gte('end_date', new Date().toISOString())
+    .maybeSingle();
+
+  if (prueba) {
+    const initDate = startDate || new Date().toISOString();
+    const endDate = new Date(initDate);
+    endDate.setDate(endDate.getDate() + 30);
+
+    const { data: programada } = await supabaseClient
+      .from('suscriptions')
+      .select('sub_id')
+      .eq('mp_sub_id', String(preapprovalId))
+      .maybeSingle();
+
+    const patch = {
+      plan: 'mensual',
+      status: 'pending',
+      init_date: new Date(initDate).toISOString(),
+      end_date: endDate.toISOString(),
+      price: 80.0,
+    };
+
+    if (programada) {
+      await supabaseClient.from('suscriptions').update(patch).eq('sub_id', programada.sub_id);
+    } else {
+      await supabaseClient.from('suscriptions').insert({ ...patch, user_id: usuarioId, mp_sub_id: String(preapprovalId) });
+    }
+
+    return { data: { processed: true }, error: null };
+  }
+
+  // Sin prueba vigente: mantener comportamiento previo (convierte la fila mas reciente)
   const { data: existente } = await supabaseClient
     .from('suscriptions')
     .select('sub_id')
@@ -257,8 +336,10 @@ export async function procesarWebhookSuscripcionCancelada(webhookData) {
 }
 
 async function procesarPagoSuscripcion(usuarioId, payment) {
-  const status = payment.status === 'approved' ? 'active' :
-                 payment.status === 'rejected' ? 'cancelled' : 'pending';
+  // Solo 'approved' activa la suscripcion. Cualquier otro estado queda 'pending'
+  // (tarjeta rechazada, sin fondos, etc.): Mercado Pago reintenta el cobro mensual
+  // y la suscripcion se activa cuando el pago se aprueba.
+  const status = payment.status === 'approved' ? 'active' : 'pending';
 
   const { data: existente } = await supabaseClient
     .from('suscriptions')
@@ -317,18 +398,26 @@ async function procesarPagoSesionExtra(usuarioId, sesionId, payment) {
 
 export async function cancelarSuscripcion(usuarioId) {
   try {
+    // Cancela el preapproval de pago: puede estar 'active' (ya cobrando) o
+    // 'pending' (programado durante la prueba gratis, primer cobro en el corte).
     const { data: suscripcion, error } = await supabaseClient
       .from('suscriptions')
-      .select('sub_id, mp_sub_id')
+      .select('sub_id, mp_sub_id, plan, status')
       .eq('user_id', usuarioId)
-      .eq('status', 'active')
+      .in('status', ['active', 'pending'])
+      .not('mp_sub_id', 'is', null)
+      .order('sub_id', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (error || !suscripcion) {
-      return { data: null, error: error || new Error('No se encontro suscripcion activa') };
+    if (error && error.code !== 'PGRST116') {
+      return { data: null, error };
+    }
+    if (!suscripcion) {
+      return { data: null, error: new Error('No se encontro suscripcion de pago activa o programada') };
     }
 
-    // Cancelar el preapproval en Mercado Pago para cortar el cobro recurrente
+    // Cortar el cobro recurrente en Mercado Pago
     if (suscripcion.mp_sub_id) {
       const { error: errorMp } = await cancelarPreapproval(suscripcion.mp_sub_id);
       if (errorMp) {
@@ -342,10 +431,14 @@ export async function cancelarSuscripcion(usuarioId) {
       .update({ status: 'cancelled' })
       .eq('sub_id', suscripcion.sub_id);
 
-    await supabaseClient
-      .from('users')
-      .update({ role: 'free' })
-      .eq('id', usuarioId);
+    // Si cancelaba una de pago YA activa, pierde el rol premium.
+    // Si cancelaba una programada, la prueba gratis sigue intacta (rol free correcto).
+    if (suscripcion.plan === 'mensual' && suscripcion.status === 'active') {
+      await supabaseClient
+        .from('users')
+        .update({ role: 'free' })
+        .eq('id', usuarioId);
+    }
 
     return { data: { cancelled: true }, error: null };
 
