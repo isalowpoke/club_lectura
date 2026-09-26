@@ -48,7 +48,7 @@
                     <h1 class="text-3xl font-bold mb-2">Bienvenido de nuevo</h1>
                     <p class="text-gray-600">Hola, <span id="user-email-display" class="font-semibold">usuario@email.com</span></p>
                 </div>
-                <button id="btn-logout" class="mt-4 md:mt-0 text-gray-600 hover:text-red-500 transition-colors text-sm font-medium">
+                <button id="btn-logout-dashboard" class="mt-4 md:mt-0 text-gray-600 hover:text-red-500 transition-colors text-sm font-medium">
                     Cerrar sesion
                 </button>
             </div>
@@ -77,9 +77,9 @@
                         <button id="btn-cancelar-suscripcion" class="w-full py-2 px-4 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm font-medium hidden">
                             Cancelar Suscripcion
                         </button>
-                        <button id="btn-sesion-extra" class="btn-accent w-full">
+                        <!-- <button id="btn-sesion-extra" class="btn-accent w-full">
                             Ver Sesiones Especiales
-                        </button>
+                        </button> -->
                     </div>
                 </div>
 
@@ -99,7 +99,7 @@
                     
                     <div class="mt-4">
                         <a href="proximas-sesiones.html" class="text-primary hover:underline text-sm font-medium">
-                            Ver calendario completo →
+                            Ver próximas sesiones →
                         </a>
                     </div>
                 </div>
@@ -114,7 +114,7 @@
             </div>
 
             <!-- Historial de Pagos -->
-            <div class="card">
+            <!-- <div class="card">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold">Historial de Pagos</h2>
                     <a href="proximas-sesiones.html" class="text-primary hover:underline text-sm">Ver todas las sesiones</a>
@@ -122,7 +122,7 @@
                 <div id="historial-pagos" class="space-y-2">
                     <div class="text-gray-500 text-center py-4">Cargando...</div>
                 </div>
-            </div>
+            </div> -->
 
             <!-- Banner: Sin Suscripcion -->
             <div id="info-sin-suscripcion" class="hidden card bg-amber-50 border border-amber-200">
@@ -143,13 +143,14 @@
 
     <!-- Scripts en orden correcto -->
     <script src="js/components.js"></script>
+    <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/main.js"></script>
     <script src="js/dashboard.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            Auth.inicializarAuth();
+        document.addEventListener('DOMContentLoaded', async () => {
             Main.inicializarMain();
+            await Auth.inicializarAuth();
             Dashboard.inicializarDashboard();
         });
     </script>

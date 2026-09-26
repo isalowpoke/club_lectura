@@ -4,6 +4,9 @@
   "type": "module",
   "description": "API Backend Club de Lectura Pago",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"

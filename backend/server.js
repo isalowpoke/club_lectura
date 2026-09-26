@@ -3,11 +3,13 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
 import sesionesRoutes from './routes/sesiones.js';
 import pagosRoutes from './routes/pagos.js';
+import keepaliveRoutes from './routes/keepalive.js';
 
-dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)) });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,9 +24,14 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// CORS - Permitir frontend
+// CORS - Permitir origenes del frontend (dev + produccion)
+// FRONTEND_URLS acepta lista CSV: "http://localhost:8080,https://dominio"
+const origenesPermitidos = process.env.FRONTEND_URLS
+  ? process.env.FRONTEND_URLS.split(',').map((o) => o.trim()).filter(Boolean)
+  : [process.env.FRONTEND_URL || 'http://localhost:8080'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+  origin: origenesPermitidos,
   credentials: true
 }));
 
@@ -52,6 +59,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/sesiones', sesionesRoutes);
 app.use('/api/pagos', pagosRoutes);
+app.use('/api', keepaliveRoutes);
 
 // ============================================
 // MANEJO DE ERRORES
@@ -74,7 +82,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
+  console.log(`Frontend URLs: ${origenesPermitidos.join(', ')}`);
 });
 
 export default app;

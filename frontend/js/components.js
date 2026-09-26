@@ -110,7 +110,7 @@ function actualizarHeaderAuth() {
     authDesktop.innerHTML = `
       <div class="flex items-center space-x-3">
         <div class="flex items-center space-x-2">
-          ${avatar ? `<img src="${avatar}" alt="" class="w-8 h-8 rounded-full">` : `<div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">${nombre.charAt(0).toUpperCase()}</div>`}
+          ${avatar ? `<a href="dashboard.html"><img src="${avatar}" alt="" class="w-8 h-8 rounded-full"></a>` : `<div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">${nombre.charAt(0).toUpperCase()}</div>`}
           <span class="text-sm font-medium text-text">${nombre}</span>
         </div>
         <button id="btn-logout" class="text-sm text-gray-500 hover:text-error font-medium transition-colors">Salir</button>
@@ -120,7 +120,7 @@ function actualizarHeaderAuth() {
     if (authMobile) {
       authMobile.innerHTML = `
         <div class="flex items-center space-x-2 mb-2">
-          ${avatar ? `<img src="${avatar}" alt="" class="w-8 h-8 rounded-full">` : `<div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">${nombre.charAt(0).toUpperCase()}</div>`}
+          ${avatar ? `<a href="dashboard.html"><img src="${avatar}" alt="" class="w-8 h-8 rounded-full"></a>` : `<div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">${nombre.charAt(0).toUpperCase()}</div>`}
           <span class="text-sm font-medium text-text">${nombre}</span>
         </div>
         <button id="btn-logout-mobile" class="block w-full text-left text-red-500 hover:text-red-700 font-medium">Cerrar Sesion</button>
