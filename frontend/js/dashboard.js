@@ -307,6 +307,14 @@ function configurarEventListeners() {
     btnCancelar.addEventListener('click', manejarCancelarSuscripcion);
   }
   
+  const btnLogoutDashboard = document.getElementById('btn-logout-dashboard');
+  if (btnLogoutDashboard) {
+    btnLogoutDashboard.addEventListener('click', (e) => {
+      e.preventDefault();
+      Auth.cerrarSesion();
+    });
+  }
+  
   const btnSesionExtra = document.getElementById('btn-sesion-extra');
   if (btnSesionExtra) {
     btnSesionExtra.addEventListener('click', () => {

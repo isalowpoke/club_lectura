@@ -2,7 +2,7 @@
 // Configuracion de Supabase
 const SUPABASE_URL = 'https://sktkxbmrktgxeduwnunu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrdGt4Ym1ya3RneGVkdXdudW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NjgzNzMsImV4cCI6MjEwMDE0NDM3M30.rytE9Be4E8vPQsuGj3sp8bcRiPlF_-MjSmDHNgnWPmA';
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = (window.APP_CONFIG && window.APP_CONFIG.BACKEND_URL) || 'http://localhost:3000';
 
 // Inicializar cliente Supabase (global)
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
@@ -75,13 +75,15 @@ async function iniciarSesionGoogle() {
 }
 
 async function cerrarSesion() {
-  if (!supabaseClient) return;
-  
-  const { error } = await supabaseClient.auth.signOut();
-  if (error) {
-    console.error('Error al cerrar sesion:', error);
-    mostrarNotificacion('Error al cerrar sesion', 'error');
-    return;
+  try {
+    if (supabaseClient) {
+      const { error } = await supabaseClient.auth.signOut({ scope: 'local' });
+      if (error) {
+        console.error('Error al cerrar sesion en Supabase:', error);
+      }
+    }
+  } catch (e) {
+    console.error('Error al cerrar sesion:', e);
   }
   
   localStorage.removeItem('clubLecturaSesion');
@@ -91,6 +93,10 @@ async function cerrarSesion() {
 
 async function verificarSesion() {
   if (!supabaseClient) return null;
+  
+  if (typeof supabaseClient.auth.initialize === 'function') {
+    try { await supabaseClient.auth.initialize(); } catch (e) { /* continuar con getSession */ }
+  }
   
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session) {
@@ -303,13 +309,13 @@ function configurarEventosAuth() {
   }
 }
 
-function inicializarAuth() {
+async function inicializarAuth() {
   configurarEventosAuth();
-  verificarSesion().then(() => {
-    if (typeof actualizarHeaderAuth === 'function') {
-      actualizarHeaderAuth();
-    }
-  });
+  const sesion = await verificarSesion();
+  if (typeof actualizarHeaderAuth === 'function') {
+    actualizarHeaderAuth();
+  }
+  return sesion;
 }
 
 // Exponer globalmente
