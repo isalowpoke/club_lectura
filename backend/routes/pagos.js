@@ -1,11 +1,15 @@
 import express from 'express';
 import { supabaseClient } from '../services/supabase.js';
 import {
-  crearPreferenciaSuscripcion,
+  crearPreapprovalSuscripcion,
   crearPreferenciaSesionExtra,
   procesarWebhookMercadoPago,
+  procesarWebhookSuscripcionCreacion,
+  procesarWebhookSuscripcionPagoAutorizado,
+  procesarWebhookSuscripcionCancelada,
   cancelarSuscripcion
 } from '../services/mercadopago.js';
+import verificarFirmaWebhook from '../middleware/verificar-firma-webhook.js';
 
 const router = express.Router();
 
@@ -40,13 +44,13 @@ router.post('/suscripcion', verificarUsuario, async (req, res) => {
     const email = req.usuario.email;
     console.log('[PAGOS] Creando preferencia para:', email, usuarioId);
 
-    const { data, error } = await crearPreferenciaSuscripcion(usuarioId, email);
+    const { data, error } = await crearPreapprovalSuscripcion(usuarioId, email);
     if (error) {
-      console.error('[PAGOS] Error creando preferencia:', JSON.stringify(error));
-      return res.status(500).json({ success: false, error: 'Error al crear preferencia de pago: ' + (error.message || JSON.stringify(error)) });
+      console.error('[PAGOS] Error creando preapproval:', JSON.stringify(error));
+      return res.status(500).json({ success: false, error: 'Error al crear suscripcion recurrente: ' + (error.message || JSON.stringify(error)) });
     }
 
-    console.log('[PAGOS] Preferencia creada:', data?.id, 'init_point:', data?.init_point ? 'OK' : 'FALTA');
+    console.log('[PAGOS] Preapproval creado:', data?.id, 'init_point:', data?.init_point ? 'OK' : 'FALTA');
 
     return res.json({
       success: true,
@@ -133,13 +137,40 @@ router.post('/sesion-extra', verificarUsuario, async (req, res) => {
 router.post('/webhook', async (req, res) => {
   try {
     const webhookData = req.body;
+    const tipoNotificacion = req.query.type || webhookData.type;
 
-    // Validar que sea una notificacion de pago
-    if (webhookData.type !== 'payment') {
+    // Validar firma HMAC si el secreto esta configurado (produccion)
+    const dataId = req.query['data.id'] || webhookData.data?.id || webhookData.id || null;
+    const { valida: firmaValida, motivo: motivoFirma } = verificarFirmaWebhook({
+      xSignature: req.headers['x-signature'],
+      xRequestId: req.headers['x-request-id'],
+      dataId,
+      secret: process.env.MERCADOPAGO_WEBHOOK_SECRET,
+    });
+
+    if (!firmaValida) {
+      console.warn('[WEBHOOK] Firma invalida, request rechazado. Motivo:', motivoFirma);
+      return res.status(401).json({ success: false, error: 'Firma invalida' });
+    }
+    if (motivoFirma.startsWith('MERCADOPAGO_WEBHOOK_SECRET no configurado')) {
+      console.warn('[WEBHOOK]', motivoFirma, '- se continua en modo desarrollo');
+    }
+
+    // Validar que sea una notificacion conocida
+    let result;
+    if (tipoNotificacion === 'payment') {
+      result = await procesarWebhookMercadoPago(webhookData);
+    } else if (tipoNotificacion === 'subscription_created') {
+      result = await procesarWebhookSuscripcionCreacion(webhookData);
+    } else if (tipoNotificacion === 'subscription_authorized_payment') {
+      result = await procesarWebhookSuscripcionPagoAutorizado(webhookData);
+    } else if (tipoNotificacion === 'subscription_cancelled') {
+      result = await procesarWebhookSuscripcionCancelada(webhookData);
+    } else {
       return res.status(200).json({ success: true, message: 'Tipo de notificacion no manejado' });
     }
 
-    const { data, error } = await procesarWebhookMercadoPago(webhookData);
+    const { data, error } = result;
     if (error) {
       console.error('Error procesando webhook:', error);
       return res.status(200).json({ success: false, error: 'Error procesando webhook' });
