@@ -5,7 +5,7 @@
   "description": "API Backend Club de Lectura Pago",
   "main": "server.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node server.js",
