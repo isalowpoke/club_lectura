@@ -148,14 +148,17 @@ Se descarta el camino de `card_token_id`/formulario de tarjeta propio (eliminado
 - [x] Codigo commit-teado en `develop` y mergeado a `main`.
 - [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
 - [x] `package.json`: `engines.node >= 20`.
-- [~] `config.js`: `BACKEND_URL` con placeholder `TU-BACKEND.up.railway.app` (reemplazar al generar el subdominio).
+- [x] `config.js`: `BACKEND_URL=https://clublectura-production.up.railway.app`.
+- [x] CORS: dominio Netlify real incl. por codigo en `server.js` (respaldo al env).
+- [x] Webhook OAuth verificado: Supabase emite OAuth de Google con callback correcto y
+      acepta `https://clublecturahispano.netlify.app/**` (E2E Playwright: el boton de
+      login del sitio llega a accounts.google.com sin errores JS).
 - [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
 - [ ] Poner `MERCADOPAGO_WEBHOOK_SECRET` del panel de MP.
-- [ ] Habilitar **Suscripciones** en la aplicacion de MP y probar E2E en TEST con la
-      cuenta de pruebas del panel (Fase 7).
-- [ ] `FRONTEND_URL` y `FRONTEND_URLS` con el dominio real de Netlify (https).
-- [ ] Supabase: Site URL, Redirect URLs y Google OAuth con el dominio.
-- [ ] Activar "Email logins" o dejar solo Google (impacta tests de sesion).
+- [ ] Habilitar **Suscripciones** en la aplicacion de MP y probar E2E.
+- [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
+      `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
+      correcto para codigos de email/redirects por defecto).
 
 ---
 
