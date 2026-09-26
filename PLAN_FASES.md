@@ -145,12 +145,43 @@ Se descarta el camino de `card_token_id`/formulario de tarjeta propio (eliminado
 ---
 
 ## Checklist al deploy (fuera de fases)
-- [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales en `.env`/Railway.
+- [x] Codigo commit-teado en `develop` y mergeado a `main`.
+- [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
+- [x] `package.json`: `engines.node >= 20`.
+- [~] `config.js`: `BACKEND_URL` con placeholder `TU-BACKEND.up.railway.app` (reemplazar al generar el subdominio).
+- [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
 - [ ] Poner `MERCADOPAGO_WEBHOOK_SECRET` del panel de MP.
 - [ ] Habilitar **Suscripciones** en la aplicacion de MP y probar E2E en TEST con la
       cuenta de pruebas del panel (Fase 7).
 - [ ] `FRONTEND_URL` y `FRONTEND_URLS` con el dominio real de Netlify (https).
-- [ ] `BACKEND_URL` real en `frontend/js/config.js`.
-- [ ] Webhook MP -> `https://<backend>/api/pagos/webhook` (eventos `payment` y `subscription_*`).
 - [ ] Supabase: Site URL, Redirect URLs y Google OAuth con el dominio.
 - [ ] Activar "Email logins" o dejar solo Google (impacta tests de sesion).
+
+---
+
+## Estado de deploy (en curso)
+
+Repo `github.com/isalowpoke/club_lectura` conectado. Falta (pasos del usuario):
+- Railway: crear proyecto + service con Root Directory = `backend`, y pegar las env vars.
+- Netlify: conectar el repo, Base directory = `frontend`, publish = `.`.
+- Supabase: ajustar URLs de auth (valores abajo).
+- Mercado Pago: token PROD + Suscripciones + webhook (pendiente hasta que el sitio este arriba).
+
+### Variables de entorno para Railway (backend)
+```
+SUPABASE_URL=https://sktkxbmrktgxeduwnunu.supabase.co
+SUPABASE_ANON_KEY=<anon key de auth.js / panel>
+SUPABASE_SERVICE_KEY=<service key del panel - SOLO backend>
+MERCADOPAGO_ACCESS_TOKEN=<PROD, no TEST>
+MERCADOPAGO_PUBLIC_KEY=<PROD>
+MERCADOPAGO_WEBHOOK_SECRET=<secreto del panel MP>
+FRONTEND_URL=https://<sitio>.netlify.app
+FRONTEND_URLS=https://<sitio>.netlify.app
+CRON_SECRET=<cadena aleatoria>
+PORT=3000
+```
+
+### Supabase - URLs de auth
+- Site URL: `https://<sitio>.netlify.app`
+- Redirect URLs: agregar `https://<sitio>.netlify.app/**` (mantener `http://localhost:8080/**` para dev)
+- Google OAuth: verificar que el redirect URI de callback de Supabase esta en Google Cloud.
