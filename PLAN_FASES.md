@@ -175,13 +175,13 @@ SUPABASE_SERVICE_KEY=<service key del panel - SOLO backend>
 MERCADOPAGO_ACCESS_TOKEN=<PROD, no TEST>
 MERCADOPAGO_PUBLIC_KEY=<PROD>
 MERCADOPAGO_WEBHOOK_SECRET=<secreto del panel MP>
-FRONTEND_URL=https://<sitio>.netlify.app
-FRONTEND_URLS=https://<sitio>.netlify.app
+FRONTEND_URL=https://clublecturahispano.netlify.app
+FRONTEND_URLS=https://clublecturahispano.netlify.app
 CRON_SECRET=<cadena aleatoria>
 PORT=3000
 ```
 
 ### Supabase - URLs de auth
-- Site URL: `https://<sitio>.netlify.app`
-- Redirect URLs: agregar `https://<sitio>.netlify.app/**` (mantener `http://localhost:8080/**` para dev)
+- Site URL: `https://clublecturahispano.netlify.app`
+- Redirect URLs: agregar `https://clublecturahispano.netlify.app/**` (mantener `http://localhost:8080/**` para dev)
 - Google OAuth: verificar que el redirect URI de callback de Supabase esta en Google Cloud.
