@@ -8,7 +8,6 @@ import authRoutes from './routes/auth.js';
 import sesionesRoutes from './routes/sesiones.js';
 import pagosRoutes from './routes/pagos.js';
 import keepaliveRoutes from './routes/keepalive.js';
-import contactoRoutes from './routes/contacto.js';
 
 dotenv.config({ path: fileURLToPath(new URL('.env', import.meta.url)) });
 
@@ -68,7 +67,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sesiones', sesionesRoutes);
 app.use('/api/pagos', pagosRoutes);
 app.use('/api', keepaliveRoutes);
-app.use('/api', contactoRoutes);
 
 // ============================================
 // MANEJO DE ERRORES
