@@ -1,0 +1,9 @@
+[build]
+  base = "frontend"
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/contacto"
+  to = "/.netlify/functions/contacto"
+  status = 200

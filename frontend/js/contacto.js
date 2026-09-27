@@ -29,12 +29,16 @@ async function enviarMensajeContacto() {
   }
 
   try {
-    const { data, error } = await Auth.apiRequest('/api/contacto', {
+    const response = await fetch('/api/contacto', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nombre, email, subject, mensaje, website }),
     });
+    const result = await response.json();
 
-    if (error) throw new Error(error);
+    if (!response.ok || result.success === false) {
+      throw new Error(result.error || 'Error desconocido');
+    }
 
     Auth.mostrarNotificacion('Mensaje enviado, te responderemos pronto', 'success');
     form.reset();

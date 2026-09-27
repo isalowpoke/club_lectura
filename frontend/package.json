@@ -1,0 +1,9 @@
+{
+  "name": "club-lectura-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sitio estatico + Netlify Function de contacto",
+  "dependencies": {
+    "nodemailer": "^10.0.11"
+  }
+}
