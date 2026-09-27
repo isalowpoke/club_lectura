@@ -30,9 +30,10 @@ app.use(helmet({
 // El dominio de produccion de Netlify se incluye siempre como respaldo
 // (evita que un env mal configurado en Railway rompa el acceso en produccion).
 const PROD_FRONTEND = 'https://clublecturahispano.netlify.app';
+const normalizarOrigen = (o) => (/^https?:\/\//i.test(o) ? o : `https://${o}`).replace(/\/+$/, '');
 const origenesPermitidos = process.env.FRONTEND_URLS
-  ? process.env.FRONTEND_URLS.split(',').map((o) => o.trim()).filter(Boolean)
-  : [process.env.FRONTEND_URL || 'http://localhost:8080'];
+  ? process.env.FRONTEND_URLS.split(',').map((o) => o.trim()).filter(Boolean).map(normalizarOrigen)
+  : [normalizarOrigen(process.env.FRONTEND_URL || 'http://localhost:8080')];
 if (!origenesPermitidos.includes(PROD_FRONTEND)) {
   origenesPermitidos.push(PROD_FRONTEND);
 }
