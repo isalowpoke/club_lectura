@@ -50,7 +50,7 @@ router.get('/libros', async (req, res) => {
   try {
     const { data: libros, error } = await supabaseClient
       .from('books')
-      .select('*')
+      .select('*, sessions!books_session_id_fkey(date, hour, title)')
       .order('month', { ascending: false })
       .limit(12);
     

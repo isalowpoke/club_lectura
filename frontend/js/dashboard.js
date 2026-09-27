@@ -276,7 +276,7 @@ async function cargarLibroDelMes() {
     if (container) {
       container.innerHTML = `
         <div class="text-gray-500 text-center py-4">
-          <p>Proximamente nuevo libro del mes</p>
+          <p>Proximamente nuevo libro actual</p>
         </div>
       `;
     }
@@ -291,6 +291,9 @@ async function cargarLibroDelMes() {
     const genero = Auth.sanitizarHTML(libro.genre);
     const descripcion = Auth.sanitizarHTML(libro.description);
     const mes = Auth.sanitizarHTML(libro.month);
+    const sesion = libro.sessions && libro.sessions.date
+      ? libro.sessions
+      : null;
     
     container.innerHTML = `
       <div class="flex flex-col md:flex-row gap-6">
@@ -304,9 +307,9 @@ async function cargarLibroDelMes() {
         </div>
         
         <div class="md:w-2/3">
-          <p class="text-gray-700 mb-4">${descripcion || 'Libro seleccionado para este mes de lectura.'}</p>
+          <p class="text-gray-700 mb-4">${descripcion || 'Libro seleccionado para este ciclo de lectura.'}</p>
           
-          ${mes ? `<div class="text-sm text-gray-600">Mes: <span class="font-medium">${mes}</span></div>` : ''}
+          ${mes ? `<div class="text-sm text-gray-600">Libro de: <span class="font-medium">${mes}</span>${sesion ? ` · Sesion: <span class="font-medium">${Auth.formatearFecha(sesion.date)}</span>` : ''}</div>` : ''}
           
           <div class="flex gap-3 mt-4">
             <a href="proximas-sesiones.html" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">Ver sesiones</a>

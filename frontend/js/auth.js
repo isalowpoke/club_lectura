@@ -159,6 +159,26 @@ async function apiRequest(endpoint, options = {}) {
   return { data: result.data, error: null };
 }
 
+// Peticiones GET de solo lectura con reintento: si el backend esta
+// "dormido" (Railway) o fallo transitorio, se reintenta 1 vez.
+async function apiRequestGET(endpoint, reintentos = 1) {
+  let ultimoError = null;
+  for (let intento = 0; intento <= reintentos; intento++) {
+    let resultado;
+    try {
+      resultado = await apiRequest(endpoint);
+    } catch (error) {
+      resultado = { data: null, error };
+    }
+    if (!resultado.error) return { data: resultado.data, error: null };
+    ultimoError = resultado.error;
+    if (intento < reintentos) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  return { data: null, error: ultimoError };
+}
+
 // ============================================
 // ESTADO DE SUSCRIPCION
 // ============================================
@@ -167,7 +187,7 @@ let estadoSuscripcion = null;
 
 async function verificarEstadoSuscripcion() {
   try {
-    const { data, error } = await apiRequest('/api/pagos/estado');
+    const { data, error } = await apiRequestGET('/api/pagos/estado');
     if (error) throw error;
     
     estadoSuscripcion = data;
@@ -247,7 +267,7 @@ async function cancelarSuscripcion() {
 
 async function obtenerProximasSesiones() {
   try {
-    const { data, error } = await apiRequest('/api/sesiones');
+    const { data, error } = await apiRequestGET('/api/sesiones');
     if (error) throw error;
     return data || [];
   } catch (error) {
@@ -258,7 +278,7 @@ async function obtenerProximasSesiones() {
 
 async function obtenerLibros() {
   try {
-    const { data, error } = await apiRequest('/api/sesiones/libros');
+    const { data, error } = await apiRequestGET('/api/sesiones/libros');
     if (error) throw error;
     return data || [];
   } catch (error) {
