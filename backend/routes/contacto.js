@@ -47,7 +47,14 @@ router.post('/contacto', limiteContacto, async (req, res) => {
     const mensaje = error.codigo === 'SMTP_NO_CONFIGURADO'
       ? 'El envio de correos no esta configurado'
       : 'No se pudo enviar el mensaje, intenta de nuevo';
-    return res.status(500).json({ success: false, error: mensaje });
+    const resp = { success: false, error: mensaje };
+    if (req.get('X-Debug-Smtp')) {
+      resp.detalle = {
+        codigo: error.codigo || error.code || 'DESCONOCIDO',
+        motivo: error.codigo === 'EAUTH' ? String(error.response).slice(0, 120) : String(error.message).slice(0, 160),
+      };
+    }
+    return res.status(500).json(resp);
   }
 });
 
