@@ -218,9 +218,10 @@ async function cargarProximasSesiones() {
   const diffDias = Math.ceil((fechaSesion - ahora) / (1000 * 60 * 60 * 24));
   
   let tiempoTexto = '';
-  if (diffDias === 0) tiempoTexto = `Hoy a las ${sesionProxima.hour}`;
-  else if (diffDias === 1) tiempoTexto = `Manana a las ${sesionProxima.hour}`;
-  else tiempoTexto = `${Auth.formatearFecha(sesionProxima.date)} a las ${sesionProxima.hour}`;
+  const hora = String(sesionProxima.hour || '19:00').slice(0, 5);
+  if (diffDias === 0) tiempoTexto = `Hoy a las ${hora}`;
+  else if (diffDias === 1) tiempoTexto = `Manana a las ${hora}`;
+  else tiempoTexto = `${Auth.formatearFecha(sesionProxima.date)} a las ${hora}`;
   
   if (container) {
     const tituloLimpio = Auth.sanitizarHTML(sesionProxima.title);
