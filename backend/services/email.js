@@ -1,5 +1,3 @@
-import nodemailer from 'nodemailer';
-
 // ============================================
 // CONFIGURACION SMTP - GMAIL (App Password)
 // ============================================
@@ -7,8 +5,11 @@ import nodemailer from 'nodemailer';
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 
-function crearTransporter() {
+// nodemailer se carga bajo demanda para que un fallo en su instalacion
+// nunca impida arrancar el servidor (los demas endpoints siguen sirviendo).
+async function obtenerTransporter() {
   if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return null;
+  const { default: nodemailer } = await import('nodemailer');
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
@@ -27,9 +28,11 @@ function crearTransporter() {
 export async function enviarCorreoContacto({ nombre, email, asunto, mensaje }) {
   const destinatario = process.env.CONTACTO_TO_CLUB || GMAIL_USER;
   
-  const transporter = crearTransporter();
+  const transporter = await obtenerTransporter();
   if (!transporter) {
-    throw new Error('SMTP de Gmail no configurado (GMAIL_USER / GMAIL_APP_PASSWORD)');
+    const error = new Error('SMTP de Gmail no configurado (GMAIL_USER / GMAIL_APP_PASSWORD)');
+    error.codigo = 'SMTP_NO_CONFIGURADO';
+    throw error;
   }
   
   const a = new Date().toLocaleString('es-MX', {

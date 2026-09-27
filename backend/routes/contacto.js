@@ -44,7 +44,10 @@ router.post('/contacto', limiteContacto, async (req, res) => {
     return res.json({ success: true, message: 'Mensaje enviado correctamente' });
   } catch (error) {
     console.error('Error enviando correo de contacto:', error);
-    return res.status(500).json({ success: false, error: 'No se pudo enviar el mensaje, intenta de nuevo' });
+    const mensaje = error.codigo === 'SMTP_NO_CONFIGURADO'
+      ? 'El envio de correos no esta configurado'
+      : 'No se pudo enviar el mensaje, intenta de nuevo';
+    return res.status(500).json({ success: false, error: mensaje });
   }
 });
 
