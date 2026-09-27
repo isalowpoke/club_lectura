@@ -136,9 +136,8 @@
             
             try {
                 const response = await Auth.apiRequest('/api/sesiones');
-                const todasLasSesiones = response.data || [];
-                const sesionesRegulares = todasLasSesiones.filter(s => s.type === 'regular' || s.type === 'normal');
-                renderizarSesiones(sesionesRegulares);
+                const sesiones = response.data || [];
+                renderizarSesiones(sesiones);
             } catch (error) {
                 console.error('Error cargando sesiones:', error);
                 container.innerHTML = '<div class="text-center py-8 text-red-500">Error al cargar sesiones</div>';
@@ -167,6 +166,12 @@
                 const tipo = Auth.sanitizarHTML(sesion.type);
                 const descripcion = Auth.sanitizarHTML(sesion.description);
                 const link = sesion.link ? Auth.sanitizarHTML(sesion.link) : '';
+                const hora = (sesion.hour || '19:00').slice(0, 5);
+                
+                const esEspecial = tipo === 'especial' || tipo === 'extra';
+                const badgeHtml = esEspecial
+                    ? `<span class="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Pago: $${sesion.price || 50}</span>`
+                    : `<span class="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800">Incluido</span>`;
                 
                 let accionHtml = '';
                 if (link) {
@@ -182,13 +187,13 @@
                                 <div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 text-center">
                                     <div class="text-3xl mb-2">📚</div>
                                     <div class="text-sm font-semibold">${tiempoTexto}</div>
-                                    <div class="text-xs text-gray-600">${sesion.hour || '19:00'}</div>
+                                    <div class="text-xs text-gray-600">${hora}</div>
                                 </div>
                             </div>
                             <div class="md:w-3/4">
                                 <div class="flex justify-between items-start mb-2">
                                     <h3 class="font-semibold text-lg">${titulo}</h3>
-                                    <span class="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800">Incluido</span>
+                                    ${badgeHtml}
                                 </div>
                                 ${descripcion ? `<p class="text-gray-600 text-sm mb-3">${descripcion}</p>` : ''}
                                 <div class="flex justify-between items-center">

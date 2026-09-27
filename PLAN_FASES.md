@@ -190,6 +190,56 @@ rechaza `back_url` http/localhost al crear preapproval en produccion.
 
 ---
 
+## Feature B - Formulario de contacto funcional (Gmail SMTP)
+**Objetivo:** el formulario de `contacto.html` envia el mensaje a `clublecturah@gmail.com`
+sin almacenar nada en BD.
+
+**Cambios (backend):**
+- `services/email.js`: transporter Nodemailer Gmail (`smtp.gmail.com:465` SSL) con
+  App Password; `enviarCorreoContacto` con `replyTo` al correo del visitante.
+- `routes/contacto.js`: `POST /api/contacto` con validacion de campos, honeypot
+  (`website`) que responde exito sin enviar, y rate-limit propio (10/h).
+- `server.js`: ruta montada en `/api`.
+
+**Cambios (frontend):**
+- `js/contacto.js`: envio via `Auth.apiRequest`, boton con estado "Enviando...",
+  notificaciones de exito/error, validacion del lado cliente.
+- `contacto.html`: campo oculto honeypot, se reemplaza el `alert()` placeholder,
+  se incluye `contacto.js`, correo real `clublecturah@gmail.com` en la info.
+
+**Variables de entorno (backend `.env` y Railway):**
+```
+GMAIL_USER=clublecturah@gmail.com
+GMAIL_APP_PASSWORD=<App Password de Google, requiere 2FA>
+CONTACTO_TO_CLUB=clublecturah@gmail.com
+```
+
+**Verificado:** envio real OK (correo recibido), honeypot y validaciones 400,
+E2E en navegador sin errores de consola.
+
+---
+
+## Fijacion: proximas sesiones (filtro por zona horaria)
+**Problema:** la columna `sessions.date` es `timestamp without time zone` guardada en
+hora local de Mexico; el API filtraba con `new Date().toISOString()` (UTC), por lo que
+durante parte del dia las sesiones de "hoy" en CDMX desaparecian. Ademas la pagina
+ocultaba las sesiones `especial` y mostraba la hora con segundos (`19:00:00`).
+
+**Cambios:**
+- `routes/sesiones.js`: `ahoraNaiveCDMX()` via `Intl` con `America/Mexico_City`, el
+  filtro `gte` usa esa cadena naive (alineada con el schema).
+- `proximas-sesiones.html`: se muestran todas las sesiones futuras (regular, normal y
+  especial), badge "Pago: $X" para especiales y hora `HH:MM`.
+
+**Verificado:** E2E navegador sin errores; `especial` aparecen; hora formateada.
+
+---
+
+## Fijacion: sesiones proximas en dashboard (hora)
+- `dashboard.js`: la hora de la proxima sesion se muestra `HH:MM` (antes `19:00:00`).
+
+---
+
 ## Checklist al deploy (fuera de fases)
 - [x] Codigo commit-teado en `develop` y mergeado a `main`.
 - [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
@@ -230,6 +280,9 @@ MERCADOPAGO_WEBHOOK_SECRET=<secreto del panel MP>
 FRONTEND_URL=https://clublecturahispano.netlify.app
 FRONTEND_URLS=https://clublecturahispano.netlify.app
 CRON_SECRET=<cadena aleatoria>
+GMAIL_USER=clublecturah@gmail.com
+GMAIL_APP_PASSWORD=<App Password del owner, requiere 2FA>
+CONTACTO_TO_CLUB=clublecturah@gmail.com
 PORT=3000
 ```
 
