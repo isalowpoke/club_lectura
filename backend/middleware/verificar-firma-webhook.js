@@ -20,7 +20,7 @@ export function verificarFirmaWebhook({ xSignature, xRequestId, dataId, secret }
     const idx = parte.indexOf('=');
     if (idx === -1) continue;
     const clave = parte.slice(0, idx).trim();
-    const valor = parte.slice(idx + 1);
+    const valor = parte.slice(idx + 1).trim();
     if (clave === 'ts') ts = valor;
     if (clave === 'v1') v1 = valor;
   }
@@ -43,7 +43,10 @@ export function verificarFirmaWebhook({ xSignature, xRequestId, dataId, secret }
     timingSafeEqual(a, a);
     return { valida: false, motivo: 'Firma no coincide' };
   }
-  return { valida: timingSafeEqual(a, b), motivo: 'OK' };
+  if (!timingSafeEqual(a, b)) {
+    return { valida: false, motivo: 'Firma no coincide' };
+  }
+  return { valida: true, motivo: 'OK' };
 }
 
 export default verificarFirmaWebhook;

@@ -30,6 +30,9 @@ export async function crearPreapprovalSuscripcion(usuarioId, email) {
       reason: 'Suscripcion Mensual - Club de Lectura',
       external_reference: usuarioId,
       back_url: `${FRONTEND_URL}/dashboard.html?payment=success`,
+      // Suscripcion "sin plan asociado / con pago pendiente": el pagador define
+      // el metodo de pago en el checkout. La documentacion exige status pending.
+      status: 'pending',
       auto_recurring: {
         frequency: 1,
         frequency_type: 'months',
