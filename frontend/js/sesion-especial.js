@@ -61,9 +61,28 @@ async function inicializarSesionEspecial() {
       if (especial) {
         sesionId = especial.id;
         if (btnComprar) btnComprar.dataset.sesionId = especial.id;
-        const precio = document.getElementById('precio-sesion-especial');
-        if (precio && especial.price) {
-          precio.textContent = `$${especial.price} MXN`;
+
+        // El precio lo fija el servidor (backend -> sessions.price): se pinta
+        // desde la BD para no contradecir lo que MP va a cobrar.
+        if (especial.price) {
+          const precioTexto = `$${especial.price} MXN`;
+          const precio = document.getElementById('precio-sesion-especial');
+          if (precio) precio.textContent = precioTexto;
+
+          const textoBoton = document.getElementById('texto-boton-compra');
+          if (textoBoton) textoBoton.textContent = `Adquirir Acceso - ${precioTexto}`;
+        }
+
+        // El endpoint entrega 'date' (fecha) y 'hour' (hora de inicio).
+        if (especial.date || especial.hour) {
+          const fecha = document.getElementById('fecha-sesion-especial');
+          if (fecha && especial.date) {
+            fecha.textContent = Auth.formatearFecha(especial.date);
+          }
+          const hora = document.getElementById('hora-sesion-especial');
+          if (hora && especial.hour) {
+            hora.textContent = String(especial.hour).slice(0, 5);
+          }
         }
       } else if (btnComprar) {
         btnComprar.disabled = true;
