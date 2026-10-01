@@ -25,11 +25,13 @@ async function iniciarCheckoutSuscripcion() {
 // CREAR PAGO DE SESION EXTRA
 // ============================================
 
-async function iniciarCheckoutSesionExtra(sesionId, monto) {
+async function iniciarCheckoutSesionExtra(sesionId) {
   try {
+    // El monto lo fija el servidor (backend/routes/pagos.js -> sesion.price);
+    // no se envia desde el cliente.
     const { data, error } = await Auth.apiRequest('/api/pagos/sesion-extra', {
       method: 'POST',
-      body: JSON.stringify({ sesion_id: sesionId, monto }),
+      body: JSON.stringify({ sesion_id: sesionId }),
     });
     
     if (error) throw error;
@@ -63,9 +65,8 @@ function configurarEventosPagos() {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       const sesionId = btn.dataset.sesionId;
-      const monto = btn.dataset.monto;
       if (sesionId) {
-        iniciarCheckoutSesionExtra(sesionId, monto);
+        iniciarCheckoutSesionExtra(sesionId);
       }
     });
   });

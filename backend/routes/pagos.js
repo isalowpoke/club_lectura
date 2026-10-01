@@ -74,7 +74,7 @@ router.post('/sesion-extra', verificarUsuario, async (req, res) => {
   try {
     const usuarioId = req.usuario.id;
     const email = req.usuario.email;
-    const { sesion_id, monto } = req.body;
+    const { sesion_id } = req.body;
 
     if (!sesion_id) {
       return res.status(400).json({ success: false, error: 'sesion_id es requerido' });
@@ -95,19 +95,31 @@ router.post('/sesion-extra', verificarUsuario, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Solo se pueden comprar sesiones especiales' });
     }
 
-    // Verificar que el usuario no haya comprado ya esta sesion
-    const { data: compraExistente } = await supabaseClient
+    // Verificar que el usuario no haya comprado ya esta sesion.
+    // Solo cuentan las compras vigentes: una rechazada libera el lugar para
+    // reintentar. maybeSingle evita el error PGRST116 de .single() cuando
+    // existen varias filas historicas.
+    const { data: compraExistente, error: errorCompra } = await supabaseClient
       .from('extra_sessions')
       .select('id')
       .eq('user_id', usuarioId)
       .eq('session_id', sesion_id)
-      .single();
+      .neq('status', 'rechazada')
+      .limit(1)
+      .maybeSingle();
+
+    if (errorCompra) {
+      console.error('Error verificando compra previa:', errorCompra);
+      return res.status(500).json({ success: false, error: 'Error al verificar compra previa' });
+    }
 
     if (compraExistente) {
       return res.status(400).json({ success: false, error: 'Ya compraste esta sesion' });
     }
 
-    const montoFinal = monto || sesion.price || 50.00;
+    // El monto lo define el servidor desde el precio de la sesion: el cliente
+    // no puede elegir cuanto paga.
+    const montoFinal = sesion.price || 50.00;
 
     const { data, error } = await crearPreferenciaSesionExtra(
       usuarioId, email, sesion_id, sesion.title, montoFinal
