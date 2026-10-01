@@ -390,6 +390,7 @@ window.Auth = {
   obtenerGrupos,
   solicitarCorreoBienvenida,
   apiRequest,
+  apiRequestGET,
   formatearMoneda,
   formatearFecha,
   mostrarNotificacion,

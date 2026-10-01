@@ -30,6 +30,9 @@ export async function crearPreapprovalSuscripcion(usuarioId, email) {
       reason: 'Suscripcion Mensual - Club de Lectura',
       external_reference: usuarioId,
       back_url: `${FRONTEND_URL}/dashboard.html?payment=success`,
+      // Suscripcion "sin plan asociado / con pago pendiente": el pagador define
+      // el metodo de pago en el checkout. La documentacion exige status pending.
+      status: 'pending',
       auto_recurring: {
         frequency: 1,
         frequency_type: 'months',
@@ -127,6 +130,14 @@ export async function crearPreferenciaSesionExtra(usuarioId, email, sesionId, se
       },
       external_reference: `${usuarioId}:${sesionId}`,
       statement_descriptor: 'CLUB DE LECTURA',
+      // Solo tarjeta: OXXO/ticket queda excluido a proposito. El ticket se paga
+      // por fuera y su webhook llega 'pending' horas despues, con ventana de
+      // expiracion; sin reconciliacion dejaba compras fantasma o cobros
+      // huerfanos si el usuario nunca pagaba.
+      payment_methods: {
+        excluded_payment_types: [{ id: 'ticket' }],
+        installments: 1,
+      },
     };
 
     if (FRONTEND_URL.startsWith('https://')) {
@@ -335,18 +346,38 @@ export async function procesarWebhookSuscripcionCancelada(webhookData) {
   return { data: { processed: true }, error: null };
 }
 
-async function procesarPagoSuscripcion(usuarioId, payment) {
+export async function procesarPagoSuscripcion(usuarioId, payment) {
   // Solo 'approved' activa la suscripcion. Cualquier otro estado queda 'pending'
   // (tarjeta rechazada, sin fondos, etc.): Mercado Pago reintenta el cobro mensual
   // y la suscripcion se activa cuando el pago se aprueba.
   const status = payment.status === 'approved' ? 'active' : 'pending';
+  const mpSubId = String(payment.preapproval_id || payment.id);
 
-  const { data: existente } = await supabaseClient
+  // 1) Idempotencia por preapproval: si la fila de este preapproval ya esta
+  //    'active', no se toca. Sin esta guarda cada reenvio del webhook
+  //    recalculaba end_date = ahora + 30 y extendia la suscripcion para
+  //    siempre.
+  const { data: porPreapproval } = await supabaseClient
+    .from('suscriptions')
+    .select('sub_id, status')
+    .eq('mp_sub_id', mpSubId)
+    .maybeSingle();
+
+  if (porPreapproval?.status === 'active' && status === 'active') {
+    console.log(`[MP] Suscripcion ${mpSubId} ya activa, no se re-procesa`);
+    return;
+  }
+
+  // 2) Nunca pisar la fila del mes gratis: el trial sigue vigente y la
+  //    suscripcion de pago va en su propia fila (mismo criterio que
+  //    procesarWebhookSuscripcionCreacion).
+  const { data: prueba } = await supabaseClient
     .from('suscriptions')
     .select('sub_id')
     .eq('user_id', usuarioId)
-    .order('init_date', { ascending: false })
-    .limit(1)
+    .eq('plan', 'gratis')
+    .eq('status', 'active')
+    .gte('end_date', new Date().toISOString())
     .maybeSingle();
 
   const fechaInicio = new Date();
@@ -357,21 +388,27 @@ async function procesarPagoSuscripcion(usuarioId, payment) {
     user_id: usuarioId,
     plan: 'mensual',
     status: status,
-    mp_sub_id: String(payment.preapproval_id || payment.id),
-    init_date: existente ? undefined : fechaInicio.toISOString(),
-    end_date: status === 'active' ? fechaFin.toISOString() : undefined,
+    mp_sub_id: mpSubId,
+    init_date: fechaInicio.toISOString(),
+    end_date: status === 'active' ? fechaFin.toISOString() : null,
     price: payment.transaction_amount,
   };
 
-  if (existente) {
+  if (porPreapproval) {
+    // Ya existe la fila de este preapproval: se actualiza en sitio.
     await supabaseClient
       .from('suscriptions')
       .update(suscripcionData)
-      .eq('sub_id', existente.sub_id);
+      .eq('sub_id', porPreapproval.sub_id);
   } else {
+    // La fila del trial (si existe) se deja intacta y la de pago se crea
+    // aparte, para no perder los dias restantes del mes gratis.
     await supabaseClient
       .from('suscriptions')
       .insert(suscripcionData);
+    if (prueba) {
+      console.log(`[MP] Trial vigente intacto; suscripcion de pago creada aparte para ${usuarioId}`);
+    }
   }
 
   if (status === 'active') {
@@ -382,18 +419,72 @@ async function procesarPagoSuscripcion(usuarioId, payment) {
   }
 }
 
-async function procesarPagoSesionExtra(usuarioId, sesionId, payment) {
-  const status = payment.status === 'approved' ? 'pagada' : 'rechazada';
+// Mercado Pago notifica 'approved' (cobrado), 'rejected' (rechazado) y
+// 'pending' (autorizado pero sin liquidar). Con OXXO excluido del checkout
+// no deberia llegar 'pending', pero se conserva el estado por si MP lo enviara.
+function mapearEstadoPago(mpStatus) {
+  if (mpStatus === 'approved') return 'active';
+  if (mpStatus === 'rejected') return 'rejected';
+  return 'pending';
+}
 
-  await supabaseClient
+export async function procesarPagoSesionExtra(usuarioId, sesionId, payment) {
+  const estado = mapearEstadoPago(payment.status);
+  const mpPayId = String(payment.id);
+  const estadoCompra = estado === 'active' ? 'pagada' : estado === 'rejected' ? 'rechazada' : 'pending';
+
+  // Idempotencia: el webhook de MP se reenvia. Si esta fila ya existe solo se
+  // actualiza el estado (p.ej. 'pending' -> 'pagada'), nunca se inserta otra.
+  const { data: existente, error: errorExistente } = await supabaseClient
+    .from('extra_sessions')
+    .select('id, status')
+    .eq('mp_pay_id', mpPayId)
+    .maybeSingle();
+
+  if (errorExistente) {
+    console.error('[MP] Error buscando compra existente:', errorExistente.message);
+  }
+
+  if (existente) {
+    // Una compra ya cobrada no se degrada nunca: un reenvio con otro estado
+    // (p.ej. 'rejected' que llega despues) no debe quitar el acceso.
+    if (existente.status !== 'pagada') {
+      const { error: errorUpdate } = await supabaseClient
+        .from('extra_sessions')
+        .update({ status: estadoCompra })
+        .eq('id', existente.id);
+
+      if (errorUpdate) {
+        console.error('[MP] Error actualizando estado de compra:', errorUpdate.message);
+      }
+    }
+    console.log(`[MP] Compra sesion ${sesionId} ya registrada (${mpPayId}), estado: ${estadoCompra}`);
+    return;
+  }
+
+  // Si no es un pago válido se registra el intento como rechazado para que el
+  // unique (user_id, session_id) libere la compra y el usuario pueda reintentar.
+  const { error: errorInsert } = await supabaseClient
     .from('extra_sessions')
     .insert({
       user_id: usuarioId,
       session_id: sesionId,
       price: payment.transaction_amount,
       pur_date: new Date().toISOString(),
-      mp_pay_id: String(payment.id),
+      mp_pay_id: mpPayId,
+      status: estadoCompra,
     });
+
+  if (errorInsert) {
+    // 23505 = unique violation: otro webhook gano la carrera. No es fatal.
+    if (errorInsert.code === '23505') {
+      console.log(`[MP] Compra sesion ${sesionId} ya insertada por otro webhook`);
+      return;
+    }
+    throw errorInsert;
+  }
+
+  console.log(`[MP] Compra sesion ${sesionId} registrada con estado: ${estadoCompra}`);
 }
 
 export async function cancelarSuscripcion(usuarioId) {

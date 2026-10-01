@@ -32,8 +32,8 @@ async function procesarCompraSesionEspecial(sesionId) {
     return;
   }
   
-  // Procesar pago
-  await Pagos.iniciarCheckoutSesionExtra(sesionId, 50);
+  // Procesar pago. El monto lo fija el servidor desde sessions.price.
+  await Pagos.iniciarCheckoutSesionExtra(sesionId);
 }
 
 // ============================================
@@ -48,13 +48,39 @@ async function inicializarSesionEspecial() {
   if (esSuscrito && aviso) {
     aviso.classList.remove('hidden');
   }
-  
-  // Configurar boton de compra
+
+  // El id de la sesion especial sale de la BD: hardcodearlo fallaba contra el
+  // endpoint (sessions.id es numerico).
   const btnComprar = document.getElementById('btn-comprar-acceso');
+  let sesionId = null;
+
+  try {
+    const { data, error } = await Auth.apiRequestGET('/api/sesiones');
+    if (!error) {
+      const especial = (data || []).find((s) => s.type === 'especial');
+      if (especial) {
+        sesionId = especial.id;
+        if (btnComprar) btnComprar.dataset.sesionId = especial.id;
+        const precio = document.getElementById('precio-sesion-especial');
+        if (precio && especial.price) {
+          precio.textContent = `$${especial.price} MXN`;
+        }
+      } else if (btnComprar) {
+        btnComprar.disabled = true;
+      }
+    }
+  } catch (error) {
+    console.error('Error cargando la sesion especial:', error);
+  }
+
   if (btnComprar) {
     btnComprar.addEventListener('click', (e) => {
       e.preventDefault();
-      procesarCompraSesionEspecial('special-001');
+      if (!sesionId) {
+        Auth.mostrarNotificacion('No hay sesion especial disponible', 'error');
+        return;
+      }
+      procesarCompraSesionEspecial(sesionId);
     });
   }
 }

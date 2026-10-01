@@ -301,6 +301,62 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
 
 ---
 
+## Fix de pagos: estado real + idempotencia (sin OXXO)
+
+**Por que:** `procesarPagoSesionExtra` calculaba `status` y **nunca lo usaba**:
+la tabla no tenia columna de estado, asi que un pago rechazado por MP (fondos
+insuficientes, tarjeta invalida) **igual registraba la compra y daba acceso** a
+la sesion. Con OXXO (`pending`) pasaba lo mismo. Ademas cada reenvio del webhook
+insertaba otra fila. `procesarPagoSuscripcion` recalculaba
+`end_date = ahora + 30` en cada replay, **extendiendo la suscripcion para
+siempre**, y pisaba la fila del mes gratis.
+
+**Esquema (`extra_sessions`):**
+- `status text not null default 'pending'` con check
+  `('pending','pagada','rechazada')`.
+- `uniq_extra_sessions_user_sesion_activa` unique parcial `(user_id, session_id)`
+  `where status <> 'rechazada'`: una compra viva por sesion, pero una rechazada
+  **libera** el lugar para reintentar.
+- `uniq_extra_sessions_mp_pay_id` unique parcial `(mp_pay_id)`: un pago de MP no
+  genera dos filas aunque se reenvie la notificacion.
+
+**Codigo:**
+- `procesarPagoSesionExtra`: usa el estado real, guarda por `mp_pay_id` antes de
+  insertar, y una compra ya `pagada` **nunca se degrada** (un `rejected` tardio
+  no quita el acceso). `23505` en carrera se trata como flujo normal.
+- `procesarPagoSuscripcion`: guarda por `mp_sub_id` -> si ya esta `active` no se
+  toca (fin de la extension infinita). Si hay trial `gratis` vigente, la fila del
+  trial se deja **intacta** y la de pago se crea aparte.
+- `crearPreferenciaSesionExtra`: `excluded_payment_types: [{ id: 'ticket' }]` e
+  `installments: 1`. **OXXO/ticket sale del checkout**: el ticket se paga por
+  fuera y su webhook llega `pending` horas despues con ventana de expiracion;
+  sin reconciliacion dejaba compras fantasma o cobros huerfanos.
+- `/api/pagos/sesion-extra`: el check de compra previa usa
+  `.neq('status','rechazada').limit(1).maybeSingle()` (`.single()` fallaba con
+  `PGRST116` y el error se descartaba en silencio) y **el monto sale de
+  `sessions.price`**: el cliente ya no puede elegir cuanto paga.
+- `js/sesion-especial.js`: el `session_id` se obtiene de `GET /api/sesiones`
+  (estaba hardcodeado `'special-001'`, un string que no existe en la BD, con
+  `sessions.id` numerico) y se muestra el precio real.
+- `procesarPagoSuscripcion` / `procesarPagoSesionExtra` se exportan para poder
+  testearlas; `Auth.apiRequestGET` se agrega a los exports.
+
+**Verificado (sandbox, token TEST):**
+- Preference creada con `excluded_payment_types: ["ticket"]` e
+  `installments: 1`; `unit_price` = 50 (de `sessions.price`), el `monto` del
+  cliente se ignora.
+- `rejected` -> `rechazada` (sin acceso); reintento `approved` -> `pagada`.
+- 3 entregas del mismo pago rechazado -> 1 fila; 4 del mismo aprobado -> 2 filas
+  (no duplica); `rejected` posterior NO degrada la compra `pagada`.
+- Unique `(user_id, session_id)` -> `23505` en compra duplicada; unique
+  `mp_pay_id` -> `23505` en fila repetida; reintento tras rechazo permitido.
+- Replay de suscripcion (3x): 1 sola fila y `end_date` identico (ya no se
+  extiende); rechazado -> `pending`; pago aprobado -> `active` + rol
+  `suscriptor`; con trial vigente quedan `["gratis/active","mensual/active"]`.
+- Usuario de prueba y filas eliminados al final.
+
+---
+
 ## Checklist al deploy (fuera de fases)
 - [x] Codigo commit-teado en `develop` y mergeado a `main`.
 - [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
@@ -313,6 +369,19 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
 - [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
       *(verificado: el token PROD existente crea preferencias y preapprovals HTTP 201,
       incl. `category_id=books` y `start_date` agendado).*
+      **OJO 2026-10-01:** esto sigue PENDIENTE y es la causa de que el boton de
+      confirmar no se active. Prueba: el preapproval `9d318751...` creado el
+      2026-10-01 tiene `collector_id 1060021514`, que es el mismo `id` que
+      devuelve `GET /users/me` con el token `TEST-` del repo. Si Railway tuviera
+      el token PROD, el `collector_id` seria otro y ese preapproval ni se veria
+      con el token TEST. Es decir, **produccion corre en modo sandbox**. En modo
+      prueba el checkout de MP no acepta tarjeta real ni cuenta real: deja elegir
+      medio de pago pero el boton confirmar nunca se habilita.
+      Para probar de punta a punta hace falta una **cuenta de prueba** de MP
+      (panel -> Tus integraciones -> la app -> Pruebas -> Cuentas de prueba ->
+      + Crear, tipo *Comprador*, pais Mexico) e iniciar sesion en el checkout
+      con esa cuenta, con tarjeta de prueba (ML suscripciones: 5474 9254 3267
+      0366 / 4075 5957 1648 3764, CVV 123, 11/30), titular `APRO` e identidad.
 - [x] `MERCADOPAGO_WEBHOOK_SECRET` activo en Railway (las peticiones sin firma dan 401).
 - [ ] Probar E2E con un pago real del dueño (autorizar el preapproval en el checkout y
       reembolsar), y luego revisar `suscriptions`/`pagos`/`users` al llegar los webhooks.
