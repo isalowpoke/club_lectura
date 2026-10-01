@@ -299,6 +299,21 @@ async function obtenerHistorialPagos() {
 }
 
 // ============================================
+// BIENVENIDA
+// ============================================
+
+// Pide al backend el correo de bienvenida (link + QR de la comunidad).
+// El backend lo envia una sola vez (idempotente via welcome_sent_at).
+// Best-effort: si falla, no molesta al usuario.
+async function solicitarCorreoBienvenida() {
+  try {
+    await apiRequest('/api/auth/bienvenida', { method: 'POST' });
+  } catch (error) {
+    console.error('Error solicitando correo de bienvenida:', error);
+  }
+}
+
+// ============================================
 // COMUNIDAD
 // ============================================
 
@@ -347,6 +362,9 @@ function configurarEventosAuth() {
 async function inicializarAuth() {
   configurarEventosAuth();
   const sesion = await verificarSesion();
+  if (sesion) {
+    solicitarCorreoBienvenida();
+  }
   if (typeof actualizarHeaderAuth === 'function') {
     actualizarHeaderAuth();
   }
@@ -370,6 +388,7 @@ window.Auth = {
   obtenerLibros,
   obtenerHistorialPagos,
   obtenerGrupos,
+  solicitarCorreoBienvenida,
   apiRequest,
   formatearMoneda,
   formatearFecha,

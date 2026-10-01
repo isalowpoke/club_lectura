@@ -4,31 +4,82 @@ import { obtenerGruposActivos, enviarCorreoBienvenida } from '../services/bienve
 
 const router = express.Router();
 
-// Correo de bienvenida best-effort: no bloquea la respuesta del webhook.
-// Se dispara en segundo plano (fire-and-forget) para evitar reintentos de Supabase.
-function enviarBienvenidaBestEffort(user) {
+// El alta de usuario la hace el trigger de Supabase (handle_new_user), no este
+// webhook, asi que la bienvenida se dispara desde POST /api/auth/bienvenida
+// (el frontend la llama tras iniciar sesion). Es idempotente: si welcome_sent_at
+// ya esta escrito no vuelve a enviar.
+async function enviarBienvenidaSiHaceFalta(user) {
+  const { data: usuario, error: errorUsuario } = await supabaseClient
+    .from('users')
+    .select('welcome_sent_at')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (errorUsuario) {
+    console.warn('[BIENVENIDA] No se pudo leer el usuario:', errorUsuario.message);
+    return { enviado: false, motivo: 'Error leyendo usuario' };
+  }
+
+  if (!usuario) {
+    // El trigger de Supabase puede tardar un instante en crear la fila
+    return { enviado: false, motivo: 'Usuario aun no registrado' };
+  }
+
+  if (usuario.welcome_sent_at) {
+    return { enviado: false, motivo: 'Ya habia recibido la bienvenida' };
+  }
+
   const nombre = user.user_metadata?.full_name
     || user.user_metadata?.name
     || String(user.email).split('@')[0] || '';
 
-  (async () => {
-    try {
-      const { data: grupos } = await obtenerGruposActivos();
-      const resultado = await enviarCorreoBienvenida(user.email, nombre, grupos);
-      if (!resultado.ok) {
-        console.warn(`[AUTH] Bienvenida no enviada a ${user.email}:`, resultado.error);
-        return;
-      }
-      await supabaseClient
-        .from('users')
-        .update({ welcome_sent_at: new Date().toISOString() })
-        .eq('id', user.id);
-      console.log(`[AUTH] Bienvenida enviada a ${user.email}`);
-    } catch (error) {
-      console.error(`[AUTH] Error enviando bienvenida a ${user.email}:`, error.message);
-    }
-  })();
+  const { data: grupos } = await obtenerGruposActivos();
+  const resultado = await enviarCorreoBienvenida(user.email, nombre, grupos);
+
+  if (!resultado.ok) {
+    console.warn(`[BIENVENIDA] No se pudo enviar a ${user.email}:`, resultado.error);
+    return { enviado: false, motivo: resultado.error };
+  }
+
+  await supabaseClient
+    .from('users')
+    .update({ welcome_sent_at: new Date().toISOString() })
+    .eq('id', user.id);
+
+  console.log(`[BIENVENIDA] Correo enviado a ${user.email}`);
+  return { enviado: true, motivo: null };
 }
+
+// ============================================
+// POST /api/auth/bienvenida
+// Envia el correo de bienvenida (link + QR de la comunidad) una sola vez.
+// La llama el frontend tras iniciar sesion; responde rapido y no rompe nada
+// si falla (best-effort).
+// ============================================
+router.post('/bienvenida', async (req, res) => {
+  try {
+    const session = req.headers.authorization?.split(' ')[1];
+    if (!session) {
+      return res.status(401).json({ success: false, error: 'Token no proporcionado' });
+    }
+
+    const { data: { user }, error: errorUser } = await supabaseClient.auth.getUser(session);
+    if (errorUser || !user) {
+      return res.status(401).json({ success: false, error: 'Token invalido' });
+    }
+
+    const resultado = await enviarBienvenidaSiHaceFalta(user);
+
+    return res.json({
+      success: true,
+      data: { enviado: resultado.enviado, motivo: resultado.motivo }
+    });
+
+  } catch (error) {
+    console.error('Error en POST /api/auth/bienvenida:', error);
+    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  }
+});
 
 // POST /webhook - Webhook de Supabase para crear registros cuando un nuevo usuario se registra
 router.post('/webhook', async (req, res) => {
@@ -74,10 +125,6 @@ router.post('/webhook', async (req, res) => {
       }
       
       console.log(`Nuevo usuario registrado: ${user.email} (ID: ${user.id}) - Mes gratis activado`);
-
-      // Correo de bienvenida con acceso a la comunidad (link + QR)
-      enviarBienvenidaBestEffort(user);
-
       return res.json({ success: true, data });
     }
     

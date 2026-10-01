@@ -254,10 +254,11 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
 - `services/bienvenida.js`: `obtenerGruposActivos()` y `enviarCorreoBienvenida()`
   (dispara `POST` HTTPS a la Netlify Function con `x-welcome-secret`, timeout 8s).
   Railway bloquea SMTP saliente, asi que el envio vive en Netlify (AWS).
-- `routes/auth.js`: el webhook de registro dispara la bienvenida en segundo plano
-  (fire-and-forget) para no retrasar la respuesta ni provocar reintentos de Supabase;
-  marca `welcome_sent_at` solo si el envio fue exitoso. Nombre desde
-  `user_metadata.full_name` con fallback al prefijo del correo.
+- `routes/auth.js`: **el alta la hace el trigger de Supabase** (`handle_new_user`),
+  NO el webhook `/api/auth/webhook` (ese webhook no se ejecuta en produccion), asi
+  que la bienvenida se dispara desde `POST /api/auth/bienvenida`, que el frontend
+  llama tras iniciar sesion. Es idempotente: si `welcome_sent_at` ya esta escrito
+  no reenvia. Nombre desde `user_metadata.full_name` con fallback al prefijo.
 - `routes/grupos.js`: `GET /api/grupos` con `verificarSuscripcionSolo` (solo
   suscripcion activa, sea `gratis` o `mensual`) -> 403 si no hay.
 
@@ -267,17 +268,28 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
   `cid`); endpoint interno protegido por `WELCOME_SECRET`.
 - `netlify.toml`: redirect `/api/welcome` -> `/.netlify/functions/welcome`.
 - `dashboard.html` / `js/dashboard.js`: tarjeta **Comunidad** con un boton por grupo.
-- `js/auth.js`: `obtenerGrupos()` (reutiliza `apiRequestGET` con reintento).
+- `js/auth.js`: `obtenerGrupos()` (reutiliza `apiRequestGET` con reintento) y
+  `solicitarCorreoBienvenida()` (llamada en `inicializarAuth` si hay sesion).
 
-**Verificado (local, `develop`):**
-- `welcome.mjs`: sin secreto -> 401; correo invalido -> 400; envio real con 2
-  grupos (QR de 1.9 KB PNG generado y enviado inline) -> 200; sin grupos -> 200.
+**Verificado (local + produccion):**
+- `welcome.mjs`: sin secreto -> 401; correo invalido -> 400; envio real con grupos
+  de la BD (QR PNG inline) -> 200; sin grupos -> 200.
+- `POST /api/auth/bienvenida`: 1er llamado -> `enviado:true` + `welcome_sent_at`
+  escrito; 2do llamado -> `enviado:false` (idempotente); sin token -> 401.
 - `GET /api/grupos`: sin token -> 401; token invalido -> 401; con suscripcion
   `gratis` activa -> 200 con la lista; sin suscripcion -> 403; con plan
   `mensual` activo -> 200. Usuario efimero y filas de prueba eliminados al final.
-- El webhook de auth confirmó que da de alta `users` + mes gratis y dispara la
-  bienvenida (log `Bienvenida no enviada` esperado: `/api/welcome` aun no esta
-  desplegado en Netlify).
+- Produccion (post-merge): `/api/welcome` responde 401 sin secreto y 200 con el
+  secreto leyendo la fila real de `groups`; `/api/grupos` -> 200 con la lista.
+
+**Descubrimiento importante:**
+- El alta de `users` + mes gratis la hace el **trigger de Supabase**
+  (`on_auth_user_created` / `handle_new_user`), no el webhook HTTP
+  `/api/auth/webhook` del backend (ese webhook no esta conectado en produccion,
+  por eso el primer intento de bienvenida nunca se disparo y `welcome_sent_at`
+  quedaba en NULL). Por eso la bienvenida se pide desde el frontend.
+- La tabla `groups` tiene RLS **sin politicas** a proposito (solo el service key
+  accede); el advisor lo reporta como `INFO`, no es un problema.
 
 **Pendiente al deploy:**
 - Netlify: `WELCOME_SECRET` (mismo valor que en Railway) + `GMAIL_USER` /
