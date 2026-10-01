@@ -240,6 +240,55 @@ ocultaba las sesiones `especial` y mostraba la hora con segundos (`19:00:00`).
 
 ---
 
+## Feature C - Correo de bienvenida con acceso a la comunidad (link + QR)
+**Objetivo:** cuando un usuario se une (gratis o de pago) recibe un correo de
+bienvenida con los enlaces de la comunidad (WhatsApp, Discord, etc.) y un QR por
+cada uno; los mismos enlaces quedan disponibles en su dashboard.
+
+**Cambios (BD - migracion `agregar_groups_y_welcome_sent_at`):**
+- Tabla `groups` (`name`, `url`, `description`, `active`) administrada por el owner.
+  RLS habilitado **sin politicas** -> el cliente no puede leerla; solo el service key.
+- `users.welcome_sent_at timestamptz` (idempotencia del envio + reenvio futuro).
+
+**Cambios (backend):**
+- `services/bienvenida.js`: `obtenerGruposActivos()` y `enviarCorreoBienvenida()`
+  (dispara `POST` HTTPS a la Netlify Function con `x-welcome-secret`, timeout 8s).
+  Railway bloquea SMTP saliente, asi que el envio vive en Netlify (AWS).
+- `routes/auth.js`: el webhook de registro dispara la bienvenida en segundo plano
+  (fire-and-forget) para no retrasar la respuesta ni provocar reintentos de Supabase;
+  marca `welcome_sent_at` solo si el envio fue exitoso. Nombre desde
+  `user_metadata.full_name` con fallback al prefijo del correo.
+- `routes/grupos.js`: `GET /api/grupos` con `verificarSuscripcionSolo` (solo
+  suscripcion activa, sea `gratis` o `mensual`) -> 403 si no hay.
+
+**Cambios (frontend):**
+- `netlify/functions/welcome.mjs`: envia el correo (SMTP 587/STARTTLS, igual que
+  `contacto.mjs`) con boton + **QR inline por comunidad** (`qrcode` -> attachment
+  `cid`); endpoint interno protegido por `WELCOME_SECRET`.
+- `netlify.toml`: redirect `/api/welcome` -> `/.netlify/functions/welcome`.
+- `dashboard.html` / `js/dashboard.js`: tarjeta **Comunidad** con un boton por grupo.
+- `js/auth.js`: `obtenerGrupos()` (reutiliza `apiRequestGET` con reintento).
+
+**Verificado (local, `develop`):**
+- `welcome.mjs`: sin secreto -> 401; correo invalido -> 400; envio real con 2
+  grupos (QR de 1.9 KB PNG generado y enviado inline) -> 200; sin grupos -> 200.
+- `GET /api/grupos`: sin token -> 401; token invalido -> 401; con suscripcion
+  `gratis` activa -> 200 con la lista; sin suscripcion -> 403; con plan
+  `mensual` activo -> 200. Usuario efimero y filas de prueba eliminados al final.
+- El webhook de auth confirmó que da de alta `users` + mes gratis y dispara la
+  bienvenida (log `Bienvenida no enviada` esperado: `/api/welcome` aun no esta
+  desplegado en Netlify).
+
+**Pendiente al deploy:**
+- Netlify: `WELCOME_SECRET` (mismo valor que en Railway) + `GMAIL_USER` /
+  `GMAIL_APP_PASSWORD` (ya existen) y redesplegar.
+- Railway: `NETLIFY_WELCOME_URL=https://clublecturahispano.netlify.app/api/welcome`
+  y `WELCOME_SECRET` (mismo valor que en Netlify).
+- Llenar `groups` con las invitaciones reales (WhatsApp/Discord) desde Supabase.
+- E2E: registrarse de verdad y confirmar el correo + los QR.
+
+---
+
 ## Checklist al deploy (fuera de fases)
 - [x] Codigo commit-teado en `develop` y mergeado a `main`.
 - [x] Repo remoto: `https://github.com/isalowpoke/club_lectura` (ramas `main` y `develop`).
@@ -283,7 +332,17 @@ CRON_SECRET=<cadena aleatoria>
 GMAIL_USER=clublecturah@gmail.com
 GMAIL_APP_PASSWORD=<App Password del owner, requiere 2FA>
 CONTACTO_TO_CLUB=clublecturah@gmail.com
+NETLIFY_WELCOME_URL=https://clublecturahispano.netlify.app/api/welcome
+WELCOME_SECRET=<mismo valor que en Netlify>
 PORT=3000
+```
+
+### Variables de entorno para Netlify (frontend)
+```
+GMAIL_USER=clublecturah@gmail.com
+GMAIL_APP_PASSWORD=<App Password del owner, requiere 2FA>
+CONTACTO_TO_CLUB=clublecturah@gmail.com
+WELCOME_SECRET=<mismo valor que en Railway>
 ```
 
 ### Supabase - URLs de auth

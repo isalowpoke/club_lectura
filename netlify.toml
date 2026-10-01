@@ -7,3 +7,8 @@
   from = "/api/contacto"
   to = "/.netlify/functions/contacto"
   status = 200
+
+[[redirects]]
+  from = "/api/welcome"
+  to = "/.netlify/functions/welcome"
+  status = 200
