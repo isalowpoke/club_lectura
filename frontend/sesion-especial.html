@@ -51,12 +51,12 @@
                     <div class="grid md:grid-cols-2 gap-6">
                         <div>
                             <h3 class="font-semibold mb-2">Fecha y Hora</h3>
-                            <p class="text-gray-700">Proximamente</p>
-                            <p class="text-gray-700">20:00 - 22:00</p>
+                            <p id="fecha-sesion-especial" class="text-gray-700">Proximamente</p>
+                            <p id="hora-sesion-especial" class="text-gray-700">20:00 - 22:00</p>
                         </div>
                         <div>
                             <h3 class="font-semibold mb-2">Inversion</h3>
-                            <p class="text-2xl font-bold text-amber-500">$50 MXN</p>
+                            <p id="precio-sesion-especial" class="text-2xl font-bold text-amber-500">$50 MXN</p>
                             <p class="text-sm text-gray-600">Pago unico, acceso ilimitado</p>
                         </div>
                     </div>
@@ -96,7 +96,7 @@
                 </div>
 
                 <button id="btn-comprar-acceso" class="bg-amber-500 hover:bg-amber-600 text-white w-full py-3 text-lg font-semibold rounded-lg transition-colors">
-                    Adquirir Acceso - $50 MXN
+                    <span id="texto-boton-compra">Adquirir Acceso - $50 MXN</span>
                 </button>
 
                 <div class="mt-6 text-center">
