@@ -299,6 +299,21 @@ async function obtenerHistorialPagos() {
 }
 
 // ============================================
+// COMUNIDAD
+// ============================================
+
+async function obtenerGrupos() {
+  try {
+    const { data, error } = await apiRequestGET('/api/grupos');
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('Error obteniendo grupos:', error);
+    return { data: null, error };
+  }
+}
+
+// ============================================
 // INICIALIZACION
 // ============================================
 
@@ -354,6 +369,7 @@ window.Auth = {
   obtenerProximasSesiones,
   obtenerLibros,
   obtenerHistorialPagos,
+  obtenerGrupos,
   apiRequest,
   formatearMoneda,
   formatearFecha,

@@ -1,0 +1,24 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    - cron: '0 9 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping keep-alive endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "x-cron-secret: ${CRON_SECRET}" \
+            "${BACKEND_URL}/api/keep-alive")
+          echo "Status: ${status}"
+          if [ "${status}" != "200" ]; then
+            echo "Keep-alive fallo con status ${status}"
+            exit 1
+          fi
