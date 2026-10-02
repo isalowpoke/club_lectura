@@ -604,10 +604,27 @@ protegerla: `SUPABASE_WEBHOOK_SECRET` no llega a hacer falta en Railway.
 **Verificado:** 28 pruebas de la maquina de estados, 12 de control de acceso a
 sesiones y 11 de la eliminacion del webhook, todas contra la BD real.
 
-**Pendiente:** los cambios estan en `develop` (`7ea35cf` + el borrado del webhook).
-Mientras no lleguen a `main`, produccion sigue sirviendo el enlace sin autenticar.
-Ademas, el enlace `https://meet.google.com/zac-rvnv-yth` quedo expuesto y conviene
-rotarlo.
+**Estado: cerrado.** Mergeado a `main` (`b7e0fac`) y desplegado. Verificado contra
+produccion (21/21): `GET /api/sesiones/` sin token responde `401`; con token y sin
+suscripcion devuelve el catalogo completo sin la columna `link`; con trial vigente
+si la incluye; `POST /api/auth/webhook` responde `404`; y un barrido de
+`meet.google.com` en las respuestas publicas de `/api/sesiones/`, `/api/health` y
+`/api/grupos` no encuentra ninguno. Las tres puertas de acceso
+(`/api/sesiones/`, `/api/pagos/estado`, `/api/auth/usuario/estado`) coinciden entre
+si porque las tres leen `obtenerAccesoUsuario()`.
+
+Dos asuntos que se abrieron durante la auditoria y quedan resueltos:
+
+- [x] Enlace `https://meet.google.com/zac-rvnv-yth`: ya no se expone por la API y se
+      decide no rotarlo por ser irrelevante para el funcionamiento del club.
+- [x] 9 usuarios de prueba acumulados en `public.users` (correos `sm-*`, `sec-*`,
+      `probe-*`, `verif-deploy-*`), cada uno con su trial `gratis` huerfano y sin
+      cuenta en `auth.users`. No afectan al funcionamiento: el acceso se decide
+      desde `suscriptions`, no desde `users`, y al no existir cuenta en `auth` nadie
+      puede autenticarse como ellos. Se decide dejarlos tal cual. Los 4 huerfanos
+      reales se conservan intactos. El cleanup de los tests se corrigio para no
+      seguir fugando filas (`PURGAR_PRUEBAS_ANTERIORES=1` purga restos antigos si
+      alguna vez hicieran falta).
 
 ---
 
