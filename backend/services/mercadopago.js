@@ -162,7 +162,9 @@ export async function crearPreapprovalSuscripcion(usuarioId, email) {
       payer_email: email,
       reason: 'Suscripcion Mensual - Club de Lectura',
       external_reference: usuarioId,
-      back_url: `${FRONTEND_URL}/dashboard.html?payment=success`,
+      // 'retorno' es un marcador neutro: el frontend NO lo lee para decidir el
+      // estado del pago. El estado real siempre viene de /api/pagos/estado.
+      back_url: `${FRONTEND_URL}/dashboard.html?retorno=mp`,
       // Suscripcion "sin plan asociado / con pago pendiente": el pagador define
       // el metodo de pago en el checkout. La documentacion exige status pending.
       status: 'pending',
@@ -429,26 +431,18 @@ export async function procesarWebhookSuscripcionPreapproval(webhookData) {
     ? interpretarFechaUtc(preapproval.auto_recurring.start_date)
     : new Date();
 
-  const { data: prueba } = await supabaseClient
-    .from('suscriptions')
-    .select('sub_id')
-    .eq('user_id', usuarioId)
-    .eq('plan', 'gratis')
-    .eq('status', 'active')
-    .gte('end_date', new Date().toISOString())
-    .maybeSingle();
-
-  // Con la prueba vigente y el primer cobro agendado, la fila queda 'pending'
-  // (el acceso lo da el trial) y solo se refrescan las fechas. Sin trial, o con
-  // el cobro ya vencido, el pagador es suscriptor: 'active'.
-  let status = prueba && inicioMP.getTime() > Date.now() ? 'pending' : 'active';
-
-  // Un reenvio nunca le quita el acceso ya otorgado.
-  if (fila?.status === 'active') status = 'active';
+  // PRINCIPIO DE ACCESO: 'authorized' significa que el pagador DEFINIO un metodo de
+  // pago, no que Mercado Pago haya cobrado. El acceso nunca se otorga desde este
+  // evento: la fila queda 'pending' y solo se sincronizan las fechas que consume el
+  // dashboard (pago_programado / proxima_fecha_cobro). El acceso llega unicamente
+  // cuando procesarPagoSuscripcion procesa un pago 'approved'.
+  // Un reenvio tampoco degrada a quien ya es suscriptor de pago.
+  const status = fila?.status === 'active' ? 'active' : 'pending';
 
   const fin = calcularFinSuscripcion(inicioMP);
-  if (fila?.end_date && new Date(fila.end_date).getTime() > fin.getTime()) {
-    fin.setTime(new Date(fila.end_date).getTime());
+  const finActual = fila?.end_date ? interpretarFechaUtc(fila.end_date) : null;
+  if (finActual && finActual.getTime() > fin.getTime()) {
+    fin.setTime(finActual.getTime());
   }
 
   const patch = {
@@ -470,14 +464,7 @@ export async function procesarWebhookSuscripcionPreapproval(webhookData) {
       .insert({ ...patch, user_id: usuarioId, mp_sub_id: String(preapprovalId) });
   }
 
-  if (status === 'active') {
-    await supabaseClient
-      .from('users')
-      .update({ role: 'suscriptor' })
-      .eq('id', usuarioId);
-  }
-
-  console.log('[MP] Preapproval', preapprovalId, 'authorized -> fila', status, 'para', usuarioId);
+  console.log('[MP] Preapproval', preapprovalId, 'authorized -> fila', status, '(sin acceso; espera pago aprobado) para', usuarioId);
   return { data: { processed: true, estado_mp: estadoMP, status }, error: null };
 }
 
@@ -527,31 +514,30 @@ export async function procesarWebhookSuscripcionCancelada(webhookData) {
   return { data: { processed: true }, error: null };
 }
 
+// Periodo de gracia tras un cobro fallido. MP reintenta la renovacion, asi que
+// no se le quita el acceso al cliente de pago por un decline transitorio:
+// GET /api/pagos/estado es quien corta el acceso cuando la gracia se agota.
+export const DIAS_GRACIA_COBRO = 7;
+
+export function calcularLimiteGracia(referencia = new Date()) {
+  return new Date(referencia.getTime() - DIAS_GRACIA_COBRO * 86400000).toISOString();
+}
+
 export async function procesarPagoSuscripcion(usuarioId, payment) {
-  // Solo 'approved' activa la suscripcion. Cualquier otro estado queda 'pending'
-  // (tarjeta rechazada, sin fondos, etc.): Mercado Pago reintenta el cobro mensual
-  // y la suscripcion se activa cuando el pago se aprueba.
-  const status = payment.status === 'approved' ? 'active' : 'pending';
+  const aprobado = payment.status === 'approved';
   const mpSubId = String(payment.preapproval_id || payment.id);
 
-  // 1) Idempotencia por preapproval: si la fila de este preapproval ya esta
-  //    'active', no se toca. Sin esta guarda cada reenvio del webhook
-  //    recalculaba end_date = ahora + 30 y extendia la suscripcion para
-  //    siempre.
+  // MP manda date_approved (ISO con zona) solo cuando el pago se aprueba.
+  const fechaAprobacion = payment.date_approved ? new Date(payment.date_approved) : new Date();
+
   const { data: porPreapproval } = await supabaseClient
     .from('suscriptions')
-    .select('sub_id, status')
+    .select('sub_id, status, init_date, end_date, failed_at')
     .eq('mp_sub_id', mpSubId)
     .maybeSingle();
 
-  if (porPreapproval?.status === 'active' && status === 'active') {
-    console.log(`[MP] Suscripcion ${mpSubId} ya activa, no se re-procesa`);
-    return;
-  }
-
-  // 2) Nunca pisar la fila del mes gratis: el trial sigue vigente y la
-  //    suscripcion de pago va en su propia fila (mismo criterio que
-  //    procesarWebhookSuscripcionPreapproval).
+  // Nunca pisar la fila del mes gratis: el trial sigue vigente y la suscripcion
+  // de pago va en su propia fila.
   const { data: prueba } = await supabaseClient
     .from('suscriptions')
     .select('sub_id')
@@ -561,29 +547,59 @@ export async function procesarPagoSuscripcion(usuarioId, payment) {
     .gte('end_date', new Date().toISOString())
     .maybeSingle();
 
-  const fechaInicio = new Date();
-  const fechaFin = new Date();
-  fechaFin.setDate(fechaFin.getDate() + 30);
+  if (!aprobado) {
+    // Cobro no aprobado: se registra la fecha del fallo y se CONSERVA el estado
+    // actual (un suscriptor de pago no pierde acceso por un solo decline).
+    // failed_at no se pisa si ya habia uno: la gracia corre desde el primer fallo.
+    const patch = {
+      mp_sub_id: mpSubId,
+      price: payment.transaction_amount,
+      failed_at: porPreapproval?.failed_at || new Date().toISOString(),
+    };
+
+    if (porPreapproval) {
+      await supabaseClient
+        .from('suscriptions')
+        .update(patch)
+        .eq('sub_id', porPreapproval.sub_id);
+    } else {
+      await supabaseClient
+        .from('suscriptions')
+        .insert({ ...patch, user_id: usuarioId, plan: 'mensual', status: 'pending' });
+    }
+
+    console.log(`[MP] Cobro ${payment.status} en ${mpSubId}; acceso conservado (gracia ${DIAS_GRACIA_COBRO} dias)`);
+    return;
+  }
+
+  // Extension monotónica: el periodo que otorga este pago termina en
+  // date_approved + 30 dias, y end_date solo avanza si eso va mas lejos que el
+  // valor actual. Un reenvio del mismo webhook vuelve a calcular la MISMA fecha,
+  // asi que no extiende nada. Si el webhook del cobro previo se perdio y llega
+  // tarde, tampoco lo pisa hacia atras.
+  const finDeEstePago = calcularFinSuscripcion(fechaAprobacion);
+  const finActual = porPreapproval?.end_date ? interpretarFechaUtc(porPreapproval.end_date) : null;
+  const fin = finActual && finActual.getTime() > finDeEstePago.getTime() ? finActual : finDeEstePago;
 
   const suscripcionData = {
     user_id: usuarioId,
     plan: 'mensual',
-    status: status,
+    status: 'active',
     mp_sub_id: mpSubId,
-    init_date: fechaInicio.toISOString(),
-    end_date: status === 'active' ? fechaFin.toISOString() : null,
+    init_date: porPreapproval?.init_date
+      ? interpretarFechaUtc(porPreapproval.init_date).toISOString()
+      : fechaAprobacion.toISOString(),
+    end_date: fin.toISOString(),
     price: payment.transaction_amount,
+    failed_at: null,
   };
 
   if (porPreapproval) {
-    // Ya existe la fila de este preapproval: se actualiza en sitio.
     await supabaseClient
       .from('suscriptions')
       .update(suscripcionData)
       .eq('sub_id', porPreapproval.sub_id);
   } else {
-    // La fila del trial (si existe) se deja intacta y la de pago se crea
-    // aparte, para no perder los dias restantes del mes gratis.
     await supabaseClient
       .from('suscriptions')
       .insert(suscripcionData);
@@ -592,12 +608,12 @@ export async function procesarPagoSuscripcion(usuarioId, payment) {
     }
   }
 
-  if (status === 'active') {
-    await supabaseClient
-      .from('users')
-      .update({ role: 'suscriptor' })
-      .eq('id', usuarioId);
-  }
+  await supabaseClient
+    .from('users')
+    .update({ role: 'suscriptor' })
+    .eq('id', usuarioId);
+
+  console.log(`[MP] Pago aprobado en ${mpSubId}: acceso hasta ${fin.toISOString()}`);
 }
 
 // Mercado Pago notifica 'approved' (cobrado), 'rejected' (rechazado) y

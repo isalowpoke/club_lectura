@@ -8,7 +8,8 @@ import {
   procesarWebhookSuscripcionPagoAutorizado,
   procesarWebhookSuscripcionCancelada,
   cancelarSuscripcion,
-  interpretarFechaUtc
+  interpretarFechaUtc,
+  calcularLimiteGracia
 } from '../services/mercadopago.js';
 import verificarFirmaWebhook from '../middleware/verificar-firma-webhook.js';
 
@@ -230,20 +231,40 @@ router.get('/estado', verificarUsuario, async (req, res) => {
     const usuarioId = req.usuario.id;
     const ahora = new Date().toISOString();
 
+    // Ventana de gracia: un cobro de renovacion fallido NO quita el acceso al
+    // instante (MP reintenta), pero una vez vencida la gracia la fila deja de dar
+    // acceso aunque siga 'active'. El filtro se aplica aqui y no con .or() porque
+    // embeber un timestamp en la sintaxis de PostgREST es fragil de parsear.
+    const limiteGraciaMs = new Date(calcularLimiteGracia()).getTime();
+
     // Suscripcion vigente (gratis o de pago) que da acceso
-    const { data: suscripcion, error } = await supabaseClient
+    const { data: candidatas, error } = await supabaseClient
       .from('suscriptions')
       .select('*')
       .eq('user_id', usuarioId)
       .eq('status', 'active')
       .gte('end_date', ahora)
-      .order('sub_id', { ascending: false })
-      .limit(1)
-      .single();
+      .order('sub_id', { ascending: false });
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       console.error('Error obteniendo estado de suscripcion:', error);
       return res.status(500).json({ success: false, error: 'Error al obtener estado' });
+    }
+
+    let suscripcion = null;
+    let graciaVencida = false;
+    for (const fila of candidatas || []) {
+      if (!fila.failed_at) {
+        suscripcion = fila;
+        break;
+      }
+      const falloMs = interpretarFechaUtc(fila.failed_at).getTime();
+      if (falloMs > limiteGraciaMs) {
+        suscripcion = fila;
+        break;
+      }
+      // Habia una activa pero la gracia del cobro fallido ya se agoto.
+      graciaVencida = true;
     }
 
     // Suscripcion de pago programada o con cobro pendiente (durante/despues de la prueba)
@@ -276,6 +297,7 @@ router.get('/estado', verificarUsuario, async (req, res) => {
           ? interpretarFechaUtc(suscripcion.end_date).toISOString()
           : null,
         en_prueba: suscripcion?.plan === 'gratis',
+        renovacion_fallida: graciaVencida,
         pago_programado: pagoProgramado,
         pago_pendiente_cobro: pagoPendienteCobro,
         proxima_fecha_cobro: proximaCobro
