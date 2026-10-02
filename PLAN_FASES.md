@@ -385,7 +385,7 @@ siempre**, y pisaba la fila del mes gratis.
 - [x] Webhook OAuth verificado: Supabase emite OAuth de Google con callback correcto y
       acepta `https://clublecturahispano.netlify.app/**` (E2E Playwright: el boton de
       login del sitio llega a accounts.google.com sin errores JS).
-- [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
+- [x] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
       *(verificado: el token PROD existente crea preferencias y preapprovals HTTP 201,
       incl. `category_id=books` y `start_date` agendado).*
       **CORREGIDO 2026-10-01:** credenciales PROD confirmadas en Railway
@@ -395,6 +395,7 @@ siempre**, y pisaba la fila del mes gratis.
       desmentida: los tokens TEST y PROD de una misma app comparten espacio de
       datos y el mismo `collector_id`, asi que esa comparacion no servia como
       prueba.*
+      *Cerrado 2026-10-02: el checkbox quedaba abierto pese a estar verificado.*
 - [x] `MERCADOPAGO_WEBHOOK_SECRET` activo en Railway (las peticiones sin firma dan 401).
 - [ ] Probar E2E con un pago real del dueño (autorizar el preapproval en el checkout y
       reembolsar), y luego revisar `suscriptions`/`pagos`/`users` al llegar los webhooks.
@@ -452,9 +453,9 @@ pagador definia el metodo de pago en el checkout, la fila se quedaba en
 sincroniza contra el estado real de MP:
 
 - `pending` -> no hace nada (el checkout sigue abierto).
-- `authorized` -> con trial vigente y cobro agendado la fila queda `pending`
-  (el acceso lo da el trial); sin trial, o con el cobro vencido, queda `active`
-  y el usuario pasa a `suscriptor`.
+- `authorized` -> **no otorga acceso**. La fila queda `pending` y solo se
+  sincronizan las fechas que usa el dashboard (`pago_programado`,
+  `proxima_fecha_cobro`). Ver "Regla de acceso" abajo.
 - `cancelled` / `paused` -> se refleja en la BD, asi cancelar en MP revoke el
   acceso.
 
@@ -466,6 +467,95 @@ Dos guardas para que un reenvio nunca haga dano: no baja una fila ya `active` a
 reflejado en la BD, nombre antiguo funcionando, y firma ausente o manipulada
 sigue dando 401. El estado `authorized` solo se puede ejercitar con el E2E real
 (requiere una tarjeta).
+
+### Regla de acceso: solo un pago aprobado otorga o extiende acceso
+
+**2026-10-02.** El endpoint que decide el acceso es `GET /api/pagos/estado`
+(filtra `status = 'active'` y `end_date >= now`), y ese `active` destapa los
+enlaces de reunion en el dashboard.
+
+`preapproval.status = 'authorized'` significa que el pagador ** defini un metodo
+de pago**, no que MP haya cobrado. El handler lo estaba usando como si fuera un
+pago, y activaba la suscripcion (y el rol `suscriptor`) sin que hubiera entrado
+un solo peso:
+
+- Con el primer cobro fallido, el acceso dependia de que llegara despues el
+  webhook del pago para degradarlo a `pending`.
+- Si ese webhook no llegaba (se caia, se agotaban los reintentos de MP, o el
+  handler lanzaba) el usuario conservaba el acceso **indefinidamente**. No habia
+  ninguna reconciliacion.
+
+Reglas que quedaron:
+
+1. `procesarWebhookSuscripcionPreapproval` nunca escribe `active` ni toca la
+   tabla `users`. Con trial vigente el acceso lo da la fila `gratis`; sin trial,
+   el acceso llega unicamente con el primer pago aprobado.
+2. `procesarPagoSuscripcion` es el unico que activa y el unico que escribe
+   `role = 'suscriptor'`.
+3. **Extension monotonica:** el periodo que otorga un pago termina en
+   `date_approved + 30 dias`, y `end_date` solo avanza si eso va mas lejos que
+   el valor actual. Asi un reenvio del mismo webhook no extiende nada y un pago
+   viejo que llega tarde no pisa el periodo vigente. Esto elimino la extension
+   doble de 30 dias que el codigo anterior Allowaba.
+4. `back_url` paso de `?payment=success` a `?retorno=mp`: era inerte, pero
+   cualquier UI futura que lo leyera se volveria un mensaje de exito falseable.
+
+### De donde sale el mes gratis (y por que las pruebas lo necesitan)
+
+El trial no lo da el backend: el trigger `on_auth_user_created` sobre
+`auth.users` ejecuta `public.handle_new_user()`, que inserta `public.users` con
+`role = 'free'` y una fila `suscriptions` de `plan = 'gratis'` por 30 dias
+(`where not exists (...)`, asi que es idempotente). Dos consecuencias:
+
+- Todo signup arranca con acceso, y una prueba de la fila `mensual` tiene que
+  **expirar el trial** o esa fila tapa el resultado. Esto inicial paso: una
+  prueba daba `tiene_suscripcion: true` en verde cuando en realidad el acceso lo
+  daba el trial.
+- El login por correo esta **deshabilitado** en Supabase ("Email logins are
+  disabled"): el unico metodo es Google OAuth, que es lo que usa
+  `frontend/js/auth.js` (`signInWithOAuth`). No hay formulario de contrasena en
+  el frontend, asi que es consistente. Para obtener un JWT en pruebas hay que
+  usar `admin.generateLink` + `verifyOtp`, no `signInWithPassword`.
+
+### Cobro fallido: gracia de 7 dias
+
+Un decline transitorio (sin fondos, tarjeta vencida) ya no le quita el acceso al
+cliente de pago en el acto, que era lo que hacia el codigo anterior. Se registro
+una columna `suscriptions.failed_at` (timestamp del **primer** fallo; los fallos
+seguidos no la pisan, para que la gracia corra siempre desde el primero) y la
+regla vive en `GET /api/pagos/estado`:
+
+- `failed_at` nula, o mas reciente que hace 7 dias -> el acceso sigue vigente.
+- `failed_at` con mas de 7 dias -> la fila deja de dar acceso y la respuesta
+  incluye `renovacion_fallida: true` para que el dashboard pueda explicarlo.
+- Un pago aprobado limpia `failed_at`.
+
+Se eligio aplicar la regla en la puerta de acceso y no en un job, justamente para
+que la politica sea autoritativa donde se decide y no dependa de un cron.
+
+**Verificado con 27 pruebas** (`procesarPagoSuscripcion` contra la BD real +
+`GET /api/pagos/estado` por HTTP con JWT): rechazo inicial deja `pending` sin
+rol; aprobado activa y limpia `failed_at`; replay del mismo pago no extiende;
+renovacion 31 dias despues extiende; rechazo conserva `active`; segundo rechazo
+no pisa `failed_at`; aprobado posterior limpia el fallo; replay de un pago viejo
+no retrocede `end_date`; y el corte por gracia a los 8 dias con acceso por HTTP.
+
+### Pendiente: reconciliacion con Mercado Pago
+
+La BD puede divergir de MP si un webhook se pierde, y hoy no hay ninguna red de
+seguridad. Queda **aplazado** a proposito (se prefirio cerrar antes el
+E2E real). Consta lo que falta:
+
+- `GET /api/pagos/reconciliar` protegido con `x-cron-secret`, reusando el patron
+  de `/api/keep-alive` (`.github/workflows/keep-alive.yml` + `secrets.CRON_SECRET`).
+- Recorrer `suscriptions` `plan = 'mensual'` con `mp_sub_id` y degradar solo ante
+  senales inequivocas: `status` de MP distinto de `authorized` ->
+  `cancelled`/`paused`, y fila `active` con preapproval `pending` -> `pending`.
+- `preapproval.summarized` expone `last_charged_date`, `charged_quantity`,
+  `charged_amount` y `semaphore`. **Los valores de `semaphore` nunca se han
+  observado** (no hay ninguna suscripcion cobrada todavia), asi que de momento
+  no debe interpretarse: confiese solo en `status`. El E2E real es lo que
+  permitira afinarla.
 - [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
       `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
       correcto para codigos de email/redirects por defecto).
