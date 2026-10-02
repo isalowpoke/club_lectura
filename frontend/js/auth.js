@@ -206,20 +206,46 @@ function tieneSuscripcionActiva() {
 // PAGOS
 // ============================================
 
+// MP documenta que los intentos consecutivos con los mismos datos de pagador se
+// interpretan como duplicado y el motor antifraude rechaza y bloquea los pagos
+// posteriores. Este bloqueo evita reintentos inmediatos desde la misma pantalla.
+const BLOQUEO_REINTENTO_MS = 60 * 1000;
+let ultimoIntentoSuscripcion = 0;
+let requestingSuscripcion = false;
+
 async function crearPagoSuscripcion() {
+  if (requestingSuscripcion) {
+    mostrarNotificacion('Ya hay una compra en proceso, espera un momento', 'info');
+    return;
+  }
+
+  const restante = BLOQUEO_REINTENTO_MS - (Date.now() - ultimoIntentoSuscripcion);
+  if (restante > 0) {
+    mostrarNotificacion(
+      `Espera ${Math.ceil(restante / 1000)} s antes de reintentar el pago`,
+      'info'
+    );
+    return;
+  }
+
+  requestingSuscripcion = true;
+  ultimoIntentoSuscripcion = Date.now();
+
   try {
     const { data, error } = await apiRequest('/api/pagos/suscripcion', {
       method: 'POST',
     });
-    
+
     if (error) throw error;
-    
+
     if (data?.init_point) {
       window.location.href = data.init_point;
     }
   } catch (error) {
     console.error('Error creando pago:', error);
     mostrarNotificacion('Error al iniciar pago', 'error');
+  } finally {
+    requestingSuscripcion = false;
   }
 }
 
