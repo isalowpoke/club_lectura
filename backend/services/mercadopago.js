@@ -385,19 +385,50 @@ async function vincularPreapprovalConUsuario(preapprovalId) {
   return { preapproval, usuarioId };
 }
 
-export async function procesarWebhookSuscripcionCreacion(webhookData) {
+// MP no emite 'subscription_created' ni 'subscription_cancelled': segun su tabla
+// de eventos, el aviso real de vinculacion/actualizacion de una suscripcion es
+// 'subscription_preapproval' (y el de cada cobro recurrente es
+// 'subscription_authorized_payment'). Sin manejarlo, cuando el pagador definia el
+// metodo de pago en el checkout la fila se quedaba en 'pending' para siempre.
+export async function procesarWebhookSuscripcionPreapproval(webhookData) {
   const preapprovalId = webhookData.data?.id;
   if (!preapprovalId) {
     throw new Error('No se encontro id de preapproval en webhook');
   }
 
   const { preapproval, usuarioId } = await vincularPreapprovalConUsuario(preapprovalId);
+  const estadoMP = preapproval.status;
 
-  // Fecha del primer cobro (se agenda al crear el preapproval durante la prueba gratia)
-  const startDate = preapproval.auto_recurring?.start_date || null;
+  const { data: fila } = await supabaseClient
+    .from('suscriptions')
+    .select('sub_id, status, end_date')
+    .eq('mp_sub_id', String(preapprovalId))
+    .maybeSingle();
 
-  // Prueba gratis vigente: NO tocar la fila de la prueba. Se crea (o actualiza) una
-  // fila separada 'mensual/pending' con el primer cobro programado al fin de la prueba.
+  // El pagador todavia no termino el checkout: no hay nada que sincronizar.
+  if (estadoMP === 'pending') {
+    return { data: { processed: true, estado_mp: estadoMP }, error: null };
+  }
+
+  if (estadoMP === 'cancelled' || estadoMP === 'paused') {
+    if (fila) {
+      await supabaseClient
+        .from('suscriptions')
+        .update({ status: estadoMP })
+        .eq('sub_id', fila.sub_id);
+    }
+    console.log('[MP] Suscripcion', preapprovalId, '->', estadoMP, 'en la BD');
+    return { data: { processed: true, estado_mp: estadoMP }, error: null };
+  }
+
+  if (estadoMP !== 'authorized') {
+    return { data: { processed: false, estado_mp: estadoMP }, error: null };
+  }
+
+  const inicioMP = preapproval.auto_recurring?.start_date
+    ? interpretarFechaUtc(preapproval.auto_recurring.start_date)
+    : new Date();
+
   const { data: prueba } = await supabaseClient
     .from('suscriptions')
     .select('sub_id')
@@ -407,51 +438,47 @@ export async function procesarWebhookSuscripcionCreacion(webhookData) {
     .gte('end_date', new Date().toISOString())
     .maybeSingle();
 
-  if (prueba) {
-    const initDate = startDate || new Date().toISOString();
-    const endDate = new Date(initDate);
-    endDate.setDate(endDate.getDate() + 30);
+  // Con la prueba vigente y el primer cobro agendado, la fila queda 'pending'
+  // (el acceso lo da el trial) y solo se refrescan las fechas. Sin trial, o con
+  // el cobro ya vencido, el pagador es suscriptor: 'active'.
+  let status = prueba && inicioMP.getTime() > Date.now() ? 'pending' : 'active';
 
-    const { data: programada } = await supabaseClient
+  // Un reenvio nunca le quita el acceso ya otorgado.
+  if (fila?.status === 'active') status = 'active';
+
+  const fin = calcularFinSuscripcion(inicioMP);
+  if (fila?.end_date && new Date(fila.end_date).getTime() > fin.getTime()) {
+    fin.setTime(new Date(fila.end_date).getTime());
+  }
+
+  const patch = {
+    plan: 'mensual',
+    status,
+    init_date: inicioMP.toISOString(),
+    end_date: fin.toISOString(),
+    price: preapproval.auto_recurring?.transaction_amount ?? 80.0,
+  };
+
+  if (fila) {
+    await supabaseClient
       .from('suscriptions')
-      .select('sub_id')
-      .eq('mp_sub_id', String(preapprovalId))
-      .maybeSingle();
-
-    const patch = {
-      plan: 'mensual',
-      status: 'pending',
-      init_date: new Date(initDate).toISOString(),
-      end_date: endDate.toISOString(),
-      price: 80.0,
-    };
-
-    if (programada) {
-      await supabaseClient.from('suscriptions').update(patch).eq('sub_id', programada.sub_id);
-    } else {
-      await supabaseClient.from('suscriptions').insert({ ...patch, user_id: usuarioId, mp_sub_id: String(preapprovalId) });
-    }
-
-    return { data: { processed: true }, error: null };
-  }
-
-  // Sin prueba vigente: mantener comportamiento previo (convierte la fila mas reciente)
-  const { data: existente } = await supabaseClient
-    .from('suscriptions')
-    .select('sub_id')
-    .eq('user_id', usuarioId)
-    .order('init_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const patch = { mp_sub_id: String(preapprovalId), plan: 'mensual', status: 'pending' };
-  if (existente) {
-    await supabaseClient.from('suscriptions').update(patch).eq('sub_id', existente.sub_id);
+      .update(patch)
+      .eq('sub_id', fila.sub_id);
   } else {
-    await supabaseClient.from('suscriptions').insert({ ...patch, user_id: usuarioId });
+    await supabaseClient
+      .from('suscriptions')
+      .insert({ ...patch, user_id: usuarioId, mp_sub_id: String(preapprovalId) });
   }
 
-  return { data: { processed: true }, error: null };
+  if (status === 'active') {
+    await supabaseClient
+      .from('users')
+      .update({ role: 'suscriptor' })
+      .eq('id', usuarioId);
+  }
+
+  console.log('[MP] Preapproval', preapprovalId, 'authorized -> fila', status, 'para', usuarioId);
+  return { data: { processed: true, estado_mp: estadoMP, status }, error: null };
 }
 
 export async function procesarWebhookSuscripcionPagoAutorizado(webhookData) {
@@ -524,7 +551,7 @@ export async function procesarPagoSuscripcion(usuarioId, payment) {
 
   // 2) Nunca pisar la fila del mes gratis: el trial sigue vigente y la
   //    suscripcion de pago va en su propia fila (mismo criterio que
-  //    procesarWebhookSuscripcionCreacion).
+  //    procesarWebhookSuscripcionPreapproval).
   const { data: prueba } = await supabaseClient
     .from('suscriptions')
     .select('sub_id')

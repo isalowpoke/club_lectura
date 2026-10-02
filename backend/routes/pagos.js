@@ -4,7 +4,7 @@ import {
   crearPreapprovalSuscripcion,
   crearPreferenciaSesionExtra,
   procesarWebhookMercadoPago,
-  procesarWebhookSuscripcionCreacion,
+  procesarWebhookSuscripcionPreapproval,
   procesarWebhookSuscripcionPagoAutorizado,
   procesarWebhookSuscripcionCancelada,
   cancelarSuscripcion,
@@ -173,8 +173,9 @@ router.post('/webhook', async (req, res) => {
     let result;
     if (tipoNotificacion === 'payment') {
       result = await procesarWebhookMercadoPago(webhookData);
-    } else if (tipoNotificacion === 'subscription_created') {
-      result = await procesarWebhookSuscripcionCreacion(webhookData);
+    } else if (tipoNotificacion === 'subscription_preapproval' || tipoNotificacion === 'subscription_created') {
+      // Evento real de MP para vinculacion/actualizacion de una suscripcion.
+      result = await procesarWebhookSuscripcionPreapproval(webhookData);
     } else if (tipoNotificacion === 'subscription_authorized_payment') {
       result = await procesarWebhookSuscripcionPagoAutorizado(webhookData);
     } else if (tipoNotificacion === 'subscription_cancelled') {
