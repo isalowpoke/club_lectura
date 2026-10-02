@@ -43,6 +43,12 @@ app.use(cors({
   credentials: true
 }));
 
+// Railway mete un proxy delante: sin esto Express toma la IP del proxy como IP
+// del cliente, el rate limiter mete a todos los usuarios en el mismo cupo
+// (100 req / 15 min para todo el sitio) y ademas lanza
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. El 1 = confiar en un solo salto (Railway).
+app.set('trust proxy', 1);
+
 // Parsear JSON en requests
 app.use(express.json());
 

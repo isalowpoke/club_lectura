@@ -23,8 +23,141 @@ export function interpretarFechaUtc(valor) {
   return tieneZona ? new Date(texto) : new Date(texto + 'Z');
 }
 
+// Un preapproval con estos estados sigue siendo pagable: se puede reutilizar.
+const PREAPPROVAL_VIGENTE = ['pending', 'authorized'];
+
+function calcularFinSuscripcion(inicio) {
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 30);
+  return fin;
+}
+
+// El motor antifraude de MP rechaza (y bloquea temporalmente) los intentos
+// consecutivos con parametros identicos de payer e items. Por eso se reutiliza
+// el preapproval vigente en lugar de crear uno nuevo en cada clic.
+async function buscarPreapprovalReutilizable(usuarioId) {
+  const { data: filas, error } = await supabaseClient
+    .from('suscriptions')
+    .select('sub_id, mp_sub_id')
+    .eq('user_id', usuarioId)
+    .eq('plan', 'mensual')
+    .eq('status', 'pending')
+    .not('mp_sub_id', 'is', null);
+
+  if (error) {
+    console.error('[MP] Error buscando preapproval previo:', error.message);
+    return null;
+  }
+
+  for (const fila of filas || []) {
+    const { data: pre, error: errorPre } = await obtenerPreapproval(fila.mp_sub_id);
+    if (errorPre || !pre) continue;
+    if (PREAPPROVAL_VIGENTE.includes(pre.status) && pre.init_point) {
+      return pre;
+    }
+  }
+
+  return null;
+}
+
+// Los preapprovals que ya no sirven se cancelan en MP y se marcan en la BD, para
+// no dejar suscripciones huerfanas ni filas 'pending' que rompan el maybeSingle()
+// de GET /api/pagos/estado.
+//
+// Devuelve:
+//   { reutilizar: preapproval } -> hay uno que sigue pagable, se debe reutilizar
+//   { error: Error }            -> no se pudo confirmar el estado, no se debe crear otro
+//   null                         -> todo limpio, se puede crear uno nuevo
+async function cancelarPreapprovalsPrevios(usuarioId) {
+  const { data: filas, error } = await supabaseClient
+    .from('suscriptions')
+    .select('sub_id, mp_sub_id')
+    .eq('user_id', usuarioId)
+    .eq('plan', 'mensual')
+    .eq('status', 'pending')
+    .not('mp_sub_id', 'is', null);
+
+  if (error) {
+    console.error('[MP] Error listando preapprovals previos:', error.message);
+    return { error };
+  }
+
+  for (const fila of filas || []) {
+    const id = String(fila.mp_sub_id);
+    try {
+      const respuesta = await mercadopago.preapproval.update({
+        id,
+        status: 'cancelled',
+      });
+      console.log('[MP] Preapproval previo cancelado:', id,
+        '->', respuesta?.body?.status);
+    } catch (errorCancelar) {
+      // Puede ser que ya estuviera cancelado o un fallo puntual. Se consulta el
+      // estado real en MP antes de decidir nada.
+      console.warn('[MP] No se pudo cancelar el preapproval', id, ':', errorCancelar.message);
+      const { data: pre, error: errorGet } = await obtenerPreapproval(id);
+      if (errorGet || !pre) {
+        // Sin estado confirmado no se asume nada: crear otro podria duplicar.
+        console.error('[MP] No se pudo verificar el estado de', id,
+          ': se aborta para no duplicar el cobro');
+        return { error: new Error('No se pudo verificar el estado de un pago previo') };
+      }
+      if (PREAPPROVAL_VIGENTE.includes(pre.status) && pre.init_point) {
+        return { reutilizar: pre };
+      }
+    }
+
+    await supabaseClient
+      .from('suscriptions')
+      .update({ status: 'cancelled' })
+      .eq('sub_id', fila.sub_id);
+  }
+
+  return null;
+}
+
+// El preapproval se registra al crearse (no solo cuando llega el webhook) para
+// poder reutilizarlo ante un reintento del usuario. Devuelve false si no se pudo
+// registrar: en ese caso el preapproval queda sin rastrear y hay que cancelarlo.
+async function registrarPreapprovalPendiente(usuarioId, pre) {
+  const inicio = pre?.auto_recurring?.start_date || new Date().toISOString();
+
+  const { error } = await supabaseClient.from('suscriptions').insert({
+    user_id: usuarioId,
+    plan: 'mensual',
+    status: 'pending',
+    mp_sub_id: String(pre.id),
+    price: 80.0,
+    init_date: new Date(inicio).toISOString(),
+    end_date: calcularFinSuscripcion(inicio).toISOString(),
+  });
+
+  if (error) {
+    console.error('[MP] Error registrando preapproval pendiente:', error.message);
+    return false;
+  }
+
+  return true;
+}
+
 export async function crearPreapprovalSuscripcion(usuarioId, email) {
   try {
+    // Un clic repetido no debe generar un segundo preapproval identico.
+    const reutilizable = await buscarPreapprovalReutilizable(usuarioId);
+    if (reutilizable) {
+      console.log('[MP] Reutilizando preapproval vigente:', reutilizable.id);
+      return { data: reutilizable, error: null, reutilizado: true };
+    }
+
+    const limpieza = await cancelarPreapprovalsPrevios(usuarioId);
+    if (limpieza?.error) {
+      return { data: null, error: limpieza.error };
+    }
+    if (limpieza?.reutilizar) {
+      console.log('[MP] Se conserva el preapproval vigente:', limpieza.reutilizar.id);
+      return { data: limpieza.reutilizar, error: null, reutilizado: true };
+    }
+
     const body = {
       payer_email: email,
       reason: 'Suscripcion Mensual - Club de Lectura',
@@ -65,7 +198,28 @@ export async function crearPreapprovalSuscripcion(usuarioId, email) {
     );
     const response = await mercadopago.preapproval.create(body);
     console.log('[MP] Preapproval OK, id:', response.body?.id);
-    return { data: response.body, error: null };
+
+    const registrado = await registrarPreapprovalPendiente(usuarioId, response.body);
+
+    if (!registrado) {
+      // Sin registro en la BD el siguiente clic no podria reutilizarlo y crearia
+      // un preapproval identico (el escenario que dispara el rechazo antifraude),
+      // asi que se cancela de inmediato y se falla de forma explicita.
+      try {
+        await mercadopago.preapproval.update({
+          id: String(response.body.id),
+          status: 'cancelled',
+        });
+        console.warn('[MP] Preapproval', response.body.id,
+          'cancelado porque no se pudo registrar en la BD');
+      } catch (errorCancelar) {
+        console.error('[MP] No se pudo cancelar el preapproval', response.body.id,
+          ':', errorCancelar.message);
+      }
+      return { data: null, error: new Error('No se pudo registrar el pago') };
+    }
+
+    return { data: response.body, error: null, reutilizado: false };
 
   } catch (error) {
     console.error('[MP] ERROR creando preapproval de suscripcion:', error.message);

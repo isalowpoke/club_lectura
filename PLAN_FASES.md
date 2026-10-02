@@ -369,22 +369,50 @@ siempre**, y pisaba la fila del mes gratis.
 - [ ] Poner `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` reales (PROD) en Railway.
       *(verificado: el token PROD existente crea preferencias y preapprovals HTTP 201,
       incl. `category_id=books` y `start_date` agendado).*
-      **OJO 2026-10-01:** esto sigue PENDIENTE y es la causa de que el boton de
-      confirmar no se active. Prueba: el preapproval `9d318751...` creado el
-      2026-10-01 tiene `collector_id 1060021514`, que es el mismo `id` que
-      devuelve `GET /users/me` con el token `TEST-` del repo. Si Railway tuviera
-      el token PROD, el `collector_id` seria otro y ese preapproval ni se veria
-      con el token TEST. Es decir, **produccion corre en modo sandbox**. En modo
-      prueba el checkout de MP no acepta tarjeta real ni cuenta real: deja elegir
-      medio de pago pero el boton confirmar nunca se habilita.
-      Para probar de punta a punta hace falta una **cuenta de prueba** de MP
-      (panel -> Tus integraciones -> la app -> Pruebas -> Cuentas de prueba ->
-      + Crear, tipo *Comprador*, pais Mexico) e iniciar sesion en el checkout
-      con esa cuenta, con tarjeta de prueba (ML suscripciones: 5474 9254 3267
-      0366 / 4075 5957 1648 3764, CVV 123, 11/30), titular `APRO` e identidad.
+      **CORREGIDO 2026-10-01:** credenciales PROD confirmadas en Railway
+      (`APP_USR-...`, cuenta 1060021514 `site_status: active`, `sell.allow: true`,
+      `required_action: null`) y webhook validando firma (401 sin `x-signature`).
+      *La nota anterior de este check ("produccion corre en modo sandbox") quedo
+      desmentida: los tokens TEST y PROD de una misma app comparten espacio de
+      datos y el mismo `collector_id`, asi que esa comparacion no servia como
+      prueba.*
 - [x] `MERCADOPAGO_WEBHOOK_SECRET` activo en Railway (las peticiones sin firma dan 401).
 - [ ] Probar E2E con un pago real del dueño (autorizar el preapproval en el checkout y
       reembolsar), y luego revisar `suscriptions`/`pagos`/`users` al llegar los webhooks.
+
+### Pagos con credenciales PROD: no usar tarjetas ni cuentas de prueba
+
+Anotacion que **ya no aplica** y que Provoco el rechazo del primer intento:
+las tarjetas de prueba (`5474 9254 3267 0366`, `4075 5957 1648 3764`) y las cuentas
+de prueba de MP son solo para credenciales `TEST-`. Con credenciales `APP_USR-` hay
+que pagar con tarjeta real y **reembolsar** despues.
+
+### Antifraude: no repetir el intento con los mismos datos
+
+El 2026-10-01 el pago se rechazo con "por motivos de seguridad" y **MP nunca creo
+un objeto de pago**, asi que no hay `status_detail` que diga el motivo exacto. Lo
+que si se pudo observar y reproducir:
+
+- Habia dos preapprovals identicos (mismo `external_reference`, mismo
+  `payer_email`, mismo `$80`) creados a las 18:53 y las 19:19.
+- Al reproducir el patron desde las pruebas, MP respondio
+  **`local_rate_limited` (HTTP 429)** al intentar crear preapprovals seguidos.
+  O sea, MP **limita la tasa de creacion de preapprovals**, no solo el antifraude
+  del checkout.
+
+La documentacion de MP cubre la parte de antifraude:
+
+> `cc_rejected_other_reason` "se trata de una estimacion de riesgo de fraude".
+> `cc_rejected_high_risk` puede aparecer "cuando se intentan realizar dos pagos
+> consecutivos con los mismos items o con parametros muy similares (como `payer` e
+> `items` identicos)". El motor antifraude lo interpreta como duplicado, lo
+> rechaza "por precaucion, bloqueando todos los pagos posteriores
+  temporalmente".
+
+Por eso `POST /api/pagos/suscripcion` ahora **reutiliza** el preapproval vigente
+en vez de crear uno por clic, cancela en MP los que ya no sirven, y el frontend
+bloquea el reintento inmediato durante 60 s. Asi se atacan las dos causas: el
+limite de tasa y el detector de duplicados.
 - [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
       `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
       correcto para codigos de email/redirects por defecto).

@@ -33,18 +33,41 @@ async function enviarBienvenidaSiHaceFalta(user) {
     || user.user_metadata?.name
     || String(user.email).split('@')[0] || '';
 
+  // Reclamo atomico antes de enviar: leen->envian->marcaba permitia que dos
+  // peticiones concurrentes (dos pestanas) enviaran el correo dos veces. El
+  // UPDATE ... WHERE welcome_sent_at IS NULL resuelve en una sola fila.
+  const marca = new Date().toISOString();
+  const { data: reclamo, error: errorReclamo } = await supabaseClient
+    .from('users')
+    .update({ welcome_sent_at: marca })
+    .eq('id', user.id)
+    .is('welcome_sent_at', null)
+    .select('id')
+    .maybeSingle();
+
+  if (errorReclamo) {
+    console.warn('[BIENVENIDA] No se pudo reservar el envio:', errorReclamo.message);
+    return { enviado: false, motivo: 'Error reservando el envio' };
+  }
+
+  if (!reclamo) {
+    return { enviado: false, motivo: 'Ya habia recibido la bienvenida' };
+  }
+
   const { data: grupos } = await obtenerGruposActivos();
   const resultado = await enviarCorreoBienvenida(user.email, nombre, grupos);
 
   if (!resultado.ok) {
+    // Se libera el reclamo para que un reintento posterior pueda enviarlo.
+    await supabaseClient
+      .from('users')
+      .update({ welcome_sent_at: null })
+      .eq('id', user.id)
+      .eq('welcome_sent_at', marca);
+
     console.warn(`[BIENVENIDA] No se pudo enviar a ${user.email}:`, resultado.error);
     return { enviado: false, motivo: resultado.error };
   }
-
-  await supabaseClient
-    .from('users')
-    .update({ welcome_sent_at: new Date().toISOString() })
-    .eq('id', user.id);
 
   console.log(`[BIENVENIDA] Correo enviado a ${user.email}`);
   return { enviado: true, motivo: null };

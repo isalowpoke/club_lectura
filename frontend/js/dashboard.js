@@ -425,14 +425,29 @@ async function manejarCancelarSuscripcion() {
 // ============================================
 
 function configurarEventListeners() {
+  // El boton se deshabilita mientras corre la redireccion: un doble clic no debe
+  // generar dos preapprovals (MP los toma como intento duplicado).
+  const irAlPago = (boton) => async () => {
+    if (boton.disabled) return;
+    boton.disabled = true;
+    const textoOriginal = boton.textContent;
+    boton.textContent = 'Redirigiendo a Mercado Pago...';
+    try {
+      await Auth.crearPagoSuscripcion();
+    } finally {
+      boton.disabled = false;
+      boton.textContent = textoOriginal;
+    }
+  };
+
   const btnSuscribirse = document.getElementById('btn-suscribirse');
   if (btnSuscribirse) {
-    btnSuscribirse.addEventListener('click', () => Auth.crearPagoSuscripcion());
+    btnSuscribirse.addEventListener('click', irAlPago(btnSuscribirse));
   }
-  
+
   const btnSuscribirseDashboard = document.getElementById('btn-suscribirse-dashboard');
   if (btnSuscribirseDashboard) {
-    btnSuscribirseDashboard.addEventListener('click', () => Auth.crearPagoSuscripcion());
+    btnSuscribirseDashboard.addEventListener('click', irAlPago(btnSuscribirseDashboard));
   }
   
   const btnCancelar = document.getElementById('btn-cancelar-suscripcion');
