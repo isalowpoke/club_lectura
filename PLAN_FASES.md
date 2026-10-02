@@ -254,9 +254,8 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
 - `services/bienvenida.js`: `obtenerGruposActivos()` y `enviarCorreoBienvenida()`
   (dispara `POST` HTTPS a la Netlify Function con `x-welcome-secret`, timeout 8s).
   Railway bloquea SMTP saliente, asi que el envio vive en Netlify (AWS).
-- `routes/auth.js`: **el alta la hace el trigger de Supabase** (`handle_new_user`),
-  NO el webhook `/api/auth/webhook` (ese webhook no se ejecuta en produccion), asi
-  que la bienvenida se dispara desde `POST /api/auth/bienvenida`, que el frontend
+- `routes/auth.js`: **el alta la hace el trigger de Supabase** (`handle_new_user`).
+  La bienvenida se dispara desde `POST /api/auth/bienvenida`, que el frontend
   llama tras iniciar sesion. Es idempotente: si `welcome_sent_at` ya esta escrito
   no reenvia. Nombre desde `user_metadata.full_name` con fallback al prefijo.
 - `routes/grupos.js`: `GET /api/grupos` con `verificarSuscripcionSolo` (solo
@@ -284,10 +283,11 @@ cada uno; los mismos enlaces quedan disponibles en su dashboard.
 
 **Descubrimiento importante:**
 - El alta de `users` + mes gratis la hace el **trigger de Supabase**
-  (`on_auth_user_created` / `handle_new_user`), no el webhook HTTP
-  `/api/auth/webhook` del backend (ese webhook no esta conectado en produccion,
-  por eso el primer intento de bienvenida nunca se disparo y `welcome_sent_at`
-  quedaba en NULL). Por eso la bienvenida se pide desde el frontend.
+  (`on_auth_user_created` / `handle_new_user`). Ese webhook HTTP del backend
+  nunca estuvo conectado en produccion (por eso el primer intento de
+  bienvenida nunca se disparo y `welcome_sent_at` quedaba en NULL), asi que la
+  bienvenida se pide desde el frontend. La ruta llego a eliminarse; ver la
+  seccion de auditoria de seguridad.
 - La tabla `groups` tiene RLS **sin politicas** a proposito (solo el service key
   accede); el advisor lo reporta como `INFO`, no es un problema.
 
@@ -556,9 +556,58 @@ E2E real). Consta lo que falta:
   observado** (no hay ninguna suscripcion cobrada todavia), asi que de momento
   no debe interpretarse: confiese solo en `status`. El E2E real es lo que
   permitira afinarla.
-- [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
-      `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
-      correcto para codigos de email/redirects por defecto).
+- [x] Supabase: Site URL corregido en el panel a
+      `https://clublecturahispano.netlify.app` (confirmado por el usuario).
+
+---
+
+## Auditoria de seguridad: fuga del enlace de las sesiones
+
+`GET /api/sesiones/` no exigia ni JWT ni suscripcion y hacia `.select('*')`, asi que
+devolvia el **enlace de la reunion a cualquiera que llamara la ruta**, sin cuenta.
+Confirmado contra produccion. El catalogo debia seguir siendo publico, pero el
+enlace no.
+
+**Cerrado por dos capas:**
+
+- **BD (ya aplicada en vivo):** migracion `sessions_ocultar_link_a_no_suscriptores`.
+  Revoca `SELECT` de tabla y concede a `anon`/`authenticated` solo las columnas
+  seguras, dejando `sessions.link` fuera. `service_role` conserva lectura completa,
+  asi que por si sola **no** cierra la fuga del backend.
+- **Backend:** `services/suscripciones.js` expone `obtenerAccesoUsuario()`, unica
+  fuente de verdad para el acceso (incluye la gracia de 7 dias). La ruta ahora pide
+  JWT (`middleware/verificar-usuario.js`) y omite `link` sin acceso, conservando el
+  catalogo. El frontend ya sabia mostrar "Requiere suscripcion".
+
+Bugs de la misma familia que aparecieron al revisar:
+
+- `middleware/verificar-suscripcion.js` usaba `.single()` sobre `suscriptions`: con
+  trial + mensual a la vez (el caso normal de un suscriptor de pago) devolvia error
+  y terminaba en 403. Tambien lo arrastraba `routes/auth.js`.
+- `users.role` se escribia a ciegas: una cancelacion dejaba el rol en `suscriptor`.
+  Ahora `recalcularRol()` lo recalcula desde las filas reales.
+- Carrera en el handler de preapproval: escribia `status` desde una lectura vieja y
+  un reenvio podia degradar a `pending` una fila que un pago aprobado acababa de
+  activar. Se escribe solo con `.neq('status', 'active')`.
+
+**`POST /api/auth/webhook` eliminado.** No exigia ni JWT ni secreto: cualquiera podia
+mandar `{type:'INSERT', user:{id,email}}` y crear un `public.users` mas un trial de
+30 dias para un UUID arbitrario. Sin escalada de privilegios (el rol venia fijo en
+`free` y el acceso ya no depende del rol), pero si permitia ensuciar la BD sin
+autenticar. Se verifico que **no hacia falta**: no hay triggers con `pg_net` (nada
+que lo invoque), el proyecto no tiene `pg_cron`, el frontend solo llama
+`/api/auth/bienvenida`, y el trigger `on_auth_user_created` ya cubria el alta de
+forma idempotente. Ademas `PLAN_FASES.md` ya habia documentado dos veces que nunca
+estuvo conectado en produccion. Por todo eso se borro la ruta entera en vez de
+protegerla: `SUPABASE_WEBHOOK_SECRET` no llega a hacer falta en Railway.
+
+**Verificado:** 28 pruebas de la maquina de estados, 12 de control de acceso a
+sesiones y 11 de la eliminacion del webhook, todas contra la BD real.
+
+**Pendiente:** los cambios estan en `develop` (`7ea35cf` + el borrado del webhook).
+Mientras no lleguen a `main`, produccion sigue sirviendo el enlace sin autenticar.
+Ademas, el enlace `https://meet.google.com/zac-rvnv-yth` quedo expuesto y conviene
+rotarlo.
 
 ---
 
