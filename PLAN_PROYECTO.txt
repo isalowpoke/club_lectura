@@ -310,6 +310,10 @@ FASE 5: BACKEND - API BASICA (Dias 7-9)
   5.2  Conectar a Supabase desde el backend
   5.3  Crear ruta POST /api/auth/webhook
        (cuando Supabase crea usuario nuevo)
+       [SUPERADO: la ruta se elimino. El alta la hace el trigger de Supabase
+        on_auth_user_created/handle_new_user, que ya es idempotente. Nunca estuvo
+        conectada en produccion y era un endpoint abierto. Ver PLAN_FASES.md,
+        seccion "Auditoria de seguridad: fuga del enlace de las sesiones".]
   5.4  Crear middleware verificar-suscripcion.js
   5.5  Crear ruta GET /api/usuario/estado
        (verificar si tiene suscripcion activa)

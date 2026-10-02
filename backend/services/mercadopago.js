@@ -32,6 +32,33 @@ function calcularFinSuscripcion(inicio) {
   return fin;
 }
 
+// `users.role` es informativo (no controla el acceso, que decide
+// GET /api/pagos/estado), pero ponerlo a ciegas dejaba el dato en 'suscriptor'
+// despues de una cancelacion. Se recalcula desde las filas reales, respetando la
+// misma ventana de gracia que la puerta de acceso.
+export async function recalcularRol(usuarioId) {
+  const ahora = new Date().toISOString();
+  const limiteGraciaMs = new Date(calcularLimiteGracia()).getTime();
+
+  const { data: filas } = await supabaseClient
+    .from('suscriptions')
+    .select('failed_at')
+    .eq('user_id', usuarioId)
+    .eq('status', 'active')
+    .gte('end_date', ahora)
+    .limit(1);
+
+  const vigente = (filas || []).some((f) => !f.failed_at || interpretarFechaUtc(f.failed_at).getTime() > limiteGraciaMs);
+  const rol = vigente ? 'suscriptor' : 'free';
+
+  await supabaseClient
+    .from('users')
+    .update({ role: rol })
+    .eq('id', usuarioId);
+
+  return rol;
+}
+
 // El motor antifraude de MP rechaza (y bloquea temporalmente) los intentos
 // consecutivos con parametros identicos de payer e items. Por eso se reutiliza
 // el preapproval vigente en lugar de crear uno nuevo en cada clic.
@@ -419,6 +446,7 @@ export async function procesarWebhookSuscripcionPreapproval(webhookData) {
         .update({ status: estadoMP })
         .eq('sub_id', fila.sub_id);
     }
+    await recalcularRol(usuarioId);
     console.log('[MP] Suscripcion', preapprovalId, '->', estadoMP, 'en la BD');
     return { data: { processed: true, estado_mp: estadoMP }, error: null };
   }
@@ -437,35 +465,43 @@ export async function procesarWebhookSuscripcionPreapproval(webhookData) {
   // dashboard (pago_programado / proxima_fecha_cobro). El acceso llega unicamente
   // cuando procesarPagoSuscripcion procesa un pago 'approved'.
   // Un reenvio tampoco degrada a quien ya es suscriptor de pago.
-  const status = fila?.status === 'active' ? 'active' : 'pending';
-
   const fin = calcularFinSuscripcion(inicioMP);
   const finActual = fila?.end_date ? interpretarFechaUtc(fila.end_date) : null;
   if (finActual && finActual.getTime() > fin.getTime()) {
     fin.setTime(finActual.getTime());
   }
 
-  const patch = {
+  const fechasYMonto = {
     plan: 'mensual',
-    status,
     init_date: inicioMP.toISOString(),
     end_date: fin.toISOString(),
     price: preapproval.auto_recurring?.transaction_amount ?? 80.0,
   };
 
   if (fila) {
+    // Fechas y monto: siempre. `fin` ya es monotono, asi que no retroceden.
     await supabaseClient
       .from('suscriptions')
-      .update(patch)
+      .update(fechasYMonto)
       .eq('sub_id', fila.sub_id);
+
+    // El estado se escribe SOLO si la fila no esta 'active'. Cierra la carrera
+    // contra el webhook de pago: si un pago aprobado activo la fila entre la
+    // lectura de arriba y esta escritura, el `.neq()` deja de escribir y no le
+    // quita el acceso recien otorgado.
+    await supabaseClient
+      .from('suscriptions')
+      .update({ status: 'pending' })
+      .eq('sub_id', fila.sub_id)
+      .neq('status', 'active');
   } else {
     await supabaseClient
       .from('suscriptions')
-      .insert({ ...patch, user_id: usuarioId, mp_sub_id: String(preapprovalId) });
+      .insert({ ...fechasYMonto, user_id: usuarioId, mp_sub_id: String(preapprovalId), status: 'pending' });
   }
 
-  console.log('[MP] Preapproval', preapprovalId, 'authorized -> fila', status, '(sin acceso; espera pago aprobado) para', usuarioId);
-  return { data: { processed: true, estado_mp: estadoMP, status }, error: null };
+  console.log('[MP] Preapproval', preapprovalId, 'authorized -> fila pending (sin acceso; espera pago aprobado) para', usuarioId);
+  return { data: { processed: true, estado_mp: estadoMP, status: 'pending' }, error: null };
 }
 
 export async function procesarWebhookSuscripcionPagoAutorizado(webhookData) {
@@ -505,10 +541,7 @@ export async function procesarWebhookSuscripcionCancelada(webhookData) {
 
   const usuarioId = suscripciones?.[0]?.user_id;
   if (usuarioId) {
-    await supabaseClient
-      .from('users')
-      .update({ role: 'free' })
-      .eq('id', usuarioId);
+    await recalcularRol(usuarioId);
   }
 
   return { data: { processed: true }, error: null };
@@ -608,10 +641,7 @@ export async function procesarPagoSuscripcion(usuarioId, payment) {
     }
   }
 
-  await supabaseClient
-    .from('users')
-    .update({ role: 'suscriptor' })
-    .eq('id', usuarioId);
+  await recalcularRol(usuarioId);
 
   console.log(`[MP] Pago aprobado en ${mpSubId}: acceso hasta ${fin.toISOString()}`);
 }
@@ -719,14 +749,10 @@ export async function cancelarSuscripcion(usuarioId) {
       .update({ status: 'cancelled' })
       .eq('sub_id', suscripcion.sub_id);
 
-    // Si cancelaba una de pago YA activa, pierde el rol premium.
-    // Si cancelaba una programada, la prueba gratis sigue intacta (rol free correcto).
-    if (suscripcion.plan === 'mensual' && suscripcion.status === 'active') {
-      await supabaseClient
-        .from('users')
-        .update({ role: 'free' })
-        .eq('id', usuarioId);
-    }
+    // Recalcular desde las filas reales en vez de poner 'free' a ciegas: el caso
+    // "cancela la mensual pero conserva el trial gratis" debe seguir siendo
+    // suscriptor, y el caso inverso ya no lo hacia este codigo.
+    await recalcularRol(usuarioId);
 
     return { data: { cancelled: true }, error: null };
 

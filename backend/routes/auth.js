@@ -1,13 +1,16 @@
 import express from 'express';
 import { supabaseClient } from '../services/supabase.js';
 import { obtenerGruposActivos, enviarCorreoBienvenida } from '../services/bienvenida.js';
+import { obtenerAccesoUsuario } from '../services/suscripciones.js';
 
 const router = express.Router();
 
-// El alta de usuario la hace el trigger de Supabase (handle_new_user), no este
-// webhook, asi que la bienvenida se dispara desde POST /api/auth/bienvenida
-// (el frontend la llama tras iniciar sesion). Es idempotente: si welcome_sent_at
-// ya esta escrito no vuelve a enviar.
+// El alta de usuario la hace el trigger de Supabase (handle_new_user), asi que la
+// bienvenida se dispara desde POST /api/auth/bienvenida (el frontend la llama tras
+// iniciar sesion). Es idempotente: si welcome_sent_at ya esta escrito no vuelve a
+// enviar. Antes existia aqui un POST /webhook que duplicaba ese alta; se elimino
+// porque no estaba conectado en produccion y por eso era un endpoint abierto que
+// cualquiera podia usar para crear usuarios y trials de 30 dias a un UUID arbitrario.
 async function enviarBienvenidaSiHaceFalta(user) {
   const { data: usuario, error: errorUsuario } = await supabaseClient
     .from('users')
@@ -104,62 +107,6 @@ router.post('/bienvenida', async (req, res) => {
   }
 });
 
-// POST /webhook - Webhook de Supabase para crear registros cuando un nuevo usuario se registra
-router.post('/webhook', async (req, res) => {
-  try {
-    const { user, type } = req.body;
-    
-    if (type === 'INSERT' && user) {
-      const usuarioData = {
-        id: user.id,
-        email: user.email,
-        role: 'free',
-      };
-      
-      const { data, error } = await supabaseClient
-        .from('users')
-        .insert(usuarioData)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error insertando usuario en BD local:', error);
-        return res.status(500).json({ success: false, error: 'Error creando registro de usuario' });
-      }
-      
-      // Crear mes gratis automatico
-      const ahora = new Date();
-      const finMesGratis = new Date(ahora);
-      finMesGratis.setDate(finMesGratis.getDate() + 30);
-      
-      const { error: errorSub } = await supabaseClient
-        .from('suscriptions')
-        .insert({
-          user_id: user.id,
-          plan: 'gratis',
-          status: 'active',
-          init_date: ahora.toISOString(),
-          end_date: finMesGratis.toISOString(),
-          price: 0,
-        });
-      
-      if (errorSub) {
-        console.error('Error creando mes gratis:', errorSub);
-      }
-      
-      console.log(`Nuevo usuario registrado: ${user.email} (ID: ${user.id}) - Mes gratis activado`);
-      return res.json({ success: true, data });
-    }
-    
-    return res.json({ success: true });
-    
-  } catch (error) {
-    console.error('Error en webhook de auth:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
-});
-
-// GET /usuario/estado - Verificar estado de usuario
 router.get('/usuario/estado', async (req, res) => {
   try {
     const session = req.headers.authorization?.split(' ')[1];
@@ -182,21 +129,17 @@ router.get('/usuario/estado', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     }
     
-    const ahora = new Date().toISOString();
-    
     let suscripcion = null;
     if (usuario.role === 'admin') {
       suscripcion = 'active';
     } else {
-      const { data: suscripcionData } = await supabaseClient
-        .from('suscriptions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .gte('end_date', ahora)
-        .single();
-      
-      suscripcion = suscripcionData?.status || null;
+      // Antes usaba .single() sobre `suscriptions`, que con varias filas
+      // coincidentes (el caso normal de un suscriptor de pago que conserva el
+      // trial 'gratis') devolvia error y terminaba reportando SIN acceso.
+      // obtenerAccesoUsuario es la misma regla que aplica /api/pagos y
+      // /api/sesiones, incluida la ventana de gracia del cobro fallido.
+      const { tieneAcceso } = await obtenerAccesoUsuario(user.id);
+      suscripcion = tieneAcceso ? 'active' : null;
     }
     
     return res.json({
