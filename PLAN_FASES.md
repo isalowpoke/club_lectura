@@ -331,6 +331,25 @@ siempre**, y pisaba la fila del mes gratis.
   `installments: 1`. **OXXO/ticket sale del checkout**: el ticket se paga por
   fuera y su webhook llega `pending` horas despues con ventana de expiracion;
   sin reconciliacion dejaba compras fantasma o cobros huerfanos.
+- **OXXO en suscripciones: no hay nada que excluir.** El endpoint `/preapproval`
+  no expone `excluded_payment_types` (verificado sobre el JSON real del
+  preapproval: las claves son `id, payer_id, payer_email, back_url, collector_id,
+  application_id, status, reason, external_reference, date_created,
+  last_modified, auto_recurring, summarized, next_payment_date, payment_method_id,
+  payment_method_id_secondary, first_invoice_offset, subscription_id, owner`; el
+  unico selector de medio de pago es `payment_method_id`). Y MP marca en su tabla
+  de metodos `*Payment methods not available for Subscriptions`: en Mexico una
+  suscripcion solo admite `account_money`, credito y debito, nunca `ticket`.
+  Por eso el checkout de suscripcion solo ofrece tarjeta o cuenta de Mercado
+  Pago, que es justo lo que se observo al intentar pagar. Correcto, sin cambios.
+- **IMPLEMENTACION FUTURA (decidido no hacerlo ahora): `extra_sessions` no
+  concede acceso.** Una compra de sesion extra queda registrada en
+  `extra_sessions` y se refleja en el historial, pero `GET /api/sesiones` y la
+  vista de detalle no la consultan, asi que comprar una sesion extra hoy no
+  habilita nada. Falta un gate de entitlement: al listar sesiones, marcar como
+  desbloqueada la que tenga una fila en `extra_sessions` con `status='pagada'` y
+  `session_id` correspondiente, y reutilizar ese criterio en el frontend para no
+  mostrar el candado.
 - `/api/pagos/sesion-extra`: el check de compra previa usa
   `.neq('status','rechazada').limit(1).maybeSingle()` (`.single()` fallaba con
   `PGRST116` y el error se descartaba en silencio) y **el monto sale de
@@ -413,6 +432,40 @@ Por eso `POST /api/pagos/suscripcion` ahora **reutiliza** el preapproval vigente
 en vez de crear uno por clic, cancela en MP los que ya no sirven, y el frontend
 bloquea el reintento inmediato durante 60 s. Asi se atacan las dos causas: el
 limite de tasa y el detector de duplicados.
+
+### Webhook: el evento que faltaba era `subscription_preapproval`
+
+MP no emite `subscription_created` ni `subscription_cancelled` como `type`. Segun
+su tabla de eventos, para suscripciones existen:
+
+| Evento | Topico que llega en `type` |
+|---|---|
+| Vinculacion/actualizacion de una suscripcion | `subscription_preapproval` |
+| Cobro recurrente de una suscripcion | `subscription_authorized_payment` |
+| Vinculacion de un plan | `subscription_preapproval_plan` |
+
+La ruta solo manejava `subscription_created` / `subscription_cancelled`, asi que
+`subscription_preapproval` caia en *"Tipo de notificacion no manejado"*: cuando el
+pagador definia el metodo de pago en el checkout, la fila se quedaba en
+`pending` para siempre. Ahora `subscription_preapproval` (y el nombre antiguo
+`subscription_created`) llaman a `procesarWebhookSuscripcionPreapproval`, que
+sincroniza contra el estado real de MP:
+
+- `pending` -> no hace nada (el checkout sigue abierto).
+- `authorized` -> con trial vigente y cobro agendado la fila queda `pending`
+  (el acceso lo da el trial); sin trial, o con el cobro vencido, queda `active`
+  y el usuario pasa a `suscriptor`.
+- `cancelled` / `paused` -> se refleja en la BD, asi cancelar en MP revoke el
+  acceso.
+
+Dos guardas para que un reenvio nunca haga dano: no baja una fila ya `active` a
+`pending` y nunca mueve `end_date` hacia atras. Ademas se elimino
+`procesarWebhookSuscripcionCreacion`, que quedo sin uso y pisaba la fila del trial.
+
+**Verificado:** evento `pending` procesado e idempotente, `cancelled`
+reflejado en la BD, nombre antiguo funcionando, y firma ausente o manipulada
+sigue dando 401. El estado `authorized` solo se puede ejercitar con el E2E real
+(requiere una tarjeta).
 - [~] Supabase: Site URL todavia apunta a `localhost:3000` en el panel -> cambiarlo a
       `https://clublecturahispano.netlify.app` (no bloquea el login Google, pero es lo
       correcto para codigos de email/redirects por defecto).
