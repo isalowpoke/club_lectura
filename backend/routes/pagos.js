@@ -8,34 +8,13 @@ import {
   procesarWebhookSuscripcionPagoAutorizado,
   procesarWebhookSuscripcionCancelada,
   cancelarSuscripcion,
-  interpretarFechaUtc,
-  calcularLimiteGracia
+  interpretarFechaUtc
 } from '../services/mercadopago.js';
+import { obtenerAccesoUsuario } from '../services/suscripciones.js';
+import verificarUsuario from '../middleware/verificar-usuario.js';
 import verificarFirmaWebhook from '../middleware/verificar-firma-webhook.js';
 
 const router = express.Router();
-
-// Helper: Verificar usuario autenticado
-async function verificarUsuario(req, res, next) {
-  try {
-    const session = req.headers.authorization?.split(' ')[1];
-    if (!session) {
-      return res.status(401).json({ success: false, error: 'Token no proporcionado' });
-    }
-
-    const { data: { user }, error: errorUser } = await supabaseClient.auth.getUser(session);
-    if (errorUser || !user) {
-      return res.status(401).json({ success: false, error: 'Token invalido' });
-    }
-
-    req.usuario = user;
-    next();
-
-  } catch (error) {
-    console.error('Error verificando usuario:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
-}
 
 // ============================================
 // POST /api/pagos/suscripcion
@@ -231,41 +210,10 @@ router.get('/estado', verificarUsuario, async (req, res) => {
     const usuarioId = req.usuario.id;
     const ahora = new Date().toISOString();
 
-    // Ventana de gracia: un cobro de renovacion fallido NO quita el acceso al
-    // instante (MP reintenta), pero una vez vencida la gracia la fila deja de dar
-    // acceso aunque siga 'active'. El filtro se aplica aqui y no con .or() porque
-    // embeber un timestamp en la sintaxis de PostgREST es fragil de parsear.
-    const limiteGraciaMs = new Date(calcularLimiteGracia()).getTime();
-
-    // Suscripcion vigente (gratis o de pago) que da acceso
-    const { data: candidatas, error } = await supabaseClient
-      .from('suscriptions')
-      .select('*')
-      .eq('user_id', usuarioId)
-      .eq('status', 'active')
-      .gte('end_date', ahora)
-      .order('sub_id', { ascending: false });
-
-    if (error) {
-      console.error('Error obteniendo estado de suscripcion:', error);
-      return res.status(500).json({ success: false, error: 'Error al obtener estado' });
-    }
-
-    let suscripcion = null;
-    let graciaVencida = false;
-    for (const fila of candidatas || []) {
-      if (!fila.failed_at) {
-        suscripcion = fila;
-        break;
-      }
-      const falloMs = interpretarFechaUtc(fila.failed_at).getTime();
-      if (falloMs > limiteGraciaMs) {
-        suscripcion = fila;
-        break;
-      }
-      // Habia una activa pero la gracia del cobro fallido ya se agoto.
-      graciaVencida = true;
-    }
+    // La decision de acceso vive en services/suscripciones.js (la misma que usa
+    // GET /api/sesiones para decidir si entrega el enlace de la reunion), asi que
+    // la ventana de gracia se aplica igual en los dos lados.
+    const { suscripcion, graciaVencida } = await obtenerAccesoUsuario(usuarioId);
 
     // Suscripcion de pago programada o con cobro pendiente (durante/despues de la prueba)
     const { data: pendiente } = await supabaseClient

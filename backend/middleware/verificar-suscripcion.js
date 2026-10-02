@@ -1,48 +1,32 @@
-// src/middleware/verificar-suscripcion.js
-import { supabaseClient } from '../services/supabase.js';
+import verificarUsuario from './verificar-usuario.js';
+import { obtenerAccesoUsuario } from '../services/suscripciones.js';
 
-async function verificarSuscripcionActiva(req, res, next) {
+// Exige usuario autenticado Y suscripcion vigente (respetando la gracia de cobro).
+//
+// Antes usaba .single() sobre `suscriptions`, lo que rompia con el caso normal de
+// un suscriptor de pago que ademas tiene el trial `gratis` activo: varias filas
+// coincidian, .single() fallaba y el usuario recibia 403 siendo suscriptor de pago.
+// La decision ahora viene de obtenerAccesoUsuario, la misma que usa /api/pagos.
+export default async function verificarSuscripcionActiva(req, res, next) {
   try {
-    const session = req.headers.authorization?.split(' ')[1];
-    if (!session) {
-      return res.status(401).json({ success: false, error: 'Token no proporcionado' });
-    }
-    
-    const { data: { user }, error: errorUser } = await supabaseClient.auth.getUser(session);
-    if (errorUser || !user) {
-      return res.status(401).json({ success: false, error: 'Token invalido' });
-    }
-    
-    const ahora = new Date().toISOString();
-    
-    const { data: suscripcion, error: errorSuscripcion } = await supabaseClient
-      .from('suscriptions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-      .gte('end_date', ahora)
-      .single();
-    
-    if (errorSuscripcion || !suscripcion) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Se requiere suscripcion activa',
-        code: 'NO_SUBSCRIPTION'
-      });
-    }
-    
-    req.usuario = user;
-    req.suscripcion = suscripcion;
-    next();
-    
+    return verificarUsuario(req, res, async () => {
+      const { suscripcion, tieneAcceso, graciaVencida } = await obtenerAccesoUsuario(req.usuario.id);
+
+      if (!tieneAcceso) {
+        return res.status(403).json({
+          success: false,
+          error: graciaVencida
+            ? 'Se requiere una renovacion al corriente'
+            : 'Se requiere suscripcion activa',
+          code: 'NO_SUBSCRIPTION',
+        });
+      }
+
+      req.suscripcion = suscripcion;
+      next();
+    });
   } catch (error) {
     console.error('Error verificando suscripcion:', error);
     return res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 }
-
-function verificarSuscripcionSolo(req, res, next) {
-  return verificarSuscripcionActiva(req, res, next);
-}
-
-export default { verificarSuscripcionSolo };

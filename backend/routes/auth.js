@@ -1,8 +1,23 @@
 import express from 'express';
+import crypto from 'crypto';
 import { supabaseClient } from '../services/supabase.js';
 import { obtenerGruposActivos, enviarCorreoBienvenida } from '../services/bienvenida.js';
+import { obtenerAccesoUsuario } from '../services/suscripciones.js';
 
 const router = express.Router();
+
+// Comparacion en tiempo constante para no filtrar el secreto por tiempos de respuesta.
+function secretoValido(recibido, esperado) {
+  if (typeof recibido !== 'string' || typeof esperado !== 'string' || !esperado) {
+    return false;
+  }
+  const a = Buffer.from(recibido);
+  const b = Buffer.from(esperado);
+  if (a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
 
 // El alta de usuario la hace el trigger de Supabase (handle_new_user), no este
 // webhook, asi que la bienvenida se dispara desde POST /api/auth/bienvenida
@@ -105,33 +120,65 @@ router.post('/bienvenida', async (req, res) => {
 });
 
 // POST /webhook - Webhook de Supabase para crear registros cuando un nuevo usuario se registra
+//
+// Este endpoint queda cerrado por defecto: sin SUPABASE_WEBHOOK_SECRET configurado
+// responde 503 y no escribe nada. Antes aceptaba el body de cualquiera, asi que
+// cualquiera podia insertar filas en `users` y regalar un trial de 30 dias a un
+// UUID arbitrario. Sigue el mismo patron de secreto que POST /api/keepalive.
 router.post('/webhook', async (req, res) => {
+  const secreto = process.env.SUPABASE_WEBHOOK_SECRET;
+
+  if (!secreto) {
+    console.error('[auth] SUPABASE_WEBHOOK_SECRET no configurado: /api/auth/webhook deshabilitado');
+    return res.status(503).json({ success: false, error: 'Webhook no configurado' });
+  }
+
+  if (!secretoValido(req.headers['x-webhook-secret'], secreto)) {
+    return res.status(401).json({ success: false, error: 'No autorizado' });
+  }
+
   try {
     const { user, type } = req.body;
-    
-    if (type === 'INSERT' && user) {
-      const usuarioData = {
-        id: user.id,
-        email: user.email,
-        role: 'free',
-      };
-      
-      const { data, error } = await supabaseClient
-        .from('users')
-        .insert(usuarioData)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error insertando usuario en BD local:', error);
-        return res.status(500).json({ success: false, error: 'Error creando registro de usuario' });
-      }
-      
-      // Crear mes gratis automatico
+
+    if (type !== 'INSERT' || !user?.id) {
+      return res.status(400).json({ success: false, error: 'Payload invalido' });
+    }
+
+    // Idempotente: el trigger handle_new_user() ya suele haber creado la fila, y un
+    // reenvio del webhook no debe duplicar nada.
+    const { data: existente } = await supabaseClient
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (existente) {
+      return res.json({ success: true, data: { ya_existia: true } });
+    }
+
+    const { error: errorUsuario } = await supabaseClient
+      .from('users')
+      .insert({ id: user.id, email: user.email, role: 'free' });
+
+    if (errorUsuario) {
+      console.error('Error creando usuario:', errorUsuario.message);
+      return res.status(500).json({ success: false, error: 'Error creando registro de usuario' });
+    }
+
+    // Mes gratis, solo si no existe ya una fila 'gratis' para ese usuario.
+    const { data: trialExistente } = await supabaseClient
+      .from('suscriptions')
+      .select('sub_id')
+      .eq('user_id', user.id)
+      .eq('plan', 'gratis')
+      .maybeSingle();
+
+    let trialCreado = false;
+    if (!trialExistente) {
       const ahora = new Date();
       const finMesGratis = new Date(ahora);
       finMesGratis.setDate(finMesGratis.getDate() + 30);
-      
+
       const { error: errorSub } = await supabaseClient
         .from('suscriptions')
         .insert({
@@ -142,17 +189,17 @@ router.post('/webhook', async (req, res) => {
           end_date: finMesGratis.toISOString(),
           price: 0,
         });
-      
+
       if (errorSub) {
-        console.error('Error creando mes gratis:', errorSub);
+        console.error('Error creando mes gratis:', errorSub.message);
+      } else {
+        trialCreado = true;
       }
-      
-      console.log(`Nuevo usuario registrado: ${user.email} (ID: ${user.id}) - Mes gratis activado`);
-      return res.json({ success: true, data });
     }
-    
-    return res.json({ success: true });
-    
+
+    console.log(`[auth] Alta via webhook: ${user.email} (ID: ${user.id}) - Mes gratis ${trialCreado ? 'activado' : 'ya existente'}`);
+    return res.json({ success: true, data: { creado: true, trial_creado: trialCreado } });
+
   } catch (error) {
     console.error('Error en webhook de auth:', error);
     return res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -182,21 +229,17 @@ router.get('/usuario/estado', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     }
     
-    const ahora = new Date().toISOString();
-    
     let suscripcion = null;
     if (usuario.role === 'admin') {
       suscripcion = 'active';
     } else {
-      const { data: suscripcionData } = await supabaseClient
-        .from('suscriptions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .gte('end_date', ahora)
-        .single();
-      
-      suscripcion = suscripcionData?.status || null;
+      // Antes usaba .single() sobre `suscriptions`, que con varias filas
+      // coincidentes (el caso normal de un suscriptor de pago que conserva el
+      // trial 'gratis') devolvia error y terminaba reportando SIN acceso.
+      // obtenerAccesoUsuario es la misma regla que aplica /api/pagos y
+      // /api/sesiones, incluida la ventana de gracia del cobro fallido.
+      const { tieneAcceso } = await obtenerAccesoUsuario(user.id);
+      suscripcion = tieneAcceso ? 'active' : null;
     }
     
     return res.json({

@@ -1,5 +1,7 @@
 import express from 'express';
 import { supabaseClient } from '../services/supabase.js';
+import verificarUsuario from '../middleware/verificar-usuario.js';
+import { obtenerAccesoUsuario } from '../services/suscripciones.js';
 
 const router = express.Router();
 
@@ -22,8 +24,14 @@ function ahoraNaiveCDMX() {
   return `${m.year}-${m.month}-${m.day} ${m.hour}:${m.minute}:${m.second}`;
 }
 
-// GET / - Proximas sesiones (publicas para autenticados)
-router.get('/', async (req, res) => {
+// GET / - Proximas sesiones
+//
+// Requiere sesion iniciada, y `sessions.link` (el enlace de la reunion, que es lo
+// que se esta vendiendo) SOLO se devuelve a quien tiene suscripcion vigente. Antes
+// esta ruta no tenia ni autenticacion ni chequeo de suscripcion y hacia
+// `select('*')`, asi que cualquier visitante anonimo se llevaba el enlace de
+// Google Meet de las sesiones futuras sin pagar nada.
+router.get('/', verificarUsuario, async (req, res) => {
   try {
     const { data: sesiones, error } = await supabaseClient
       .from('sessions')
@@ -34,10 +42,18 @@ router.get('/', async (req, res) => {
     
     if (error) {
       console.error('Error obteniendo sesiones:', error);
-      return res.status(500).json({ success: false, error: 'Error al obtener sesiones' });
+      return res.status(500).json({ success: false, error: 'Error obteniendo sesiones' });
     }
-    
-    return res.json({ success: true, data: sesiones });
+
+    const { tieneAcceso } = await obtenerAccesoUsuario(req.usuario.id);
+
+    // Sin suscripcion se conserva el catalogo (titulo, fecha, descripcion) y se
+    // quita unicamente el enlace.
+    const data = tieneAcceso
+      ? sesiones
+      : (sesiones || []).map(({ link, ...resto }) => resto);
+
+    return res.json({ success: true, data, tiene_suscripcion: tieneAcceso });
     
   } catch (error) {
     console.error('Error en GET /api/sesiones:', error);

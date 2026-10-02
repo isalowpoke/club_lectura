@@ -8,7 +8,7 @@ import verificarSuscripcion from '../middleware/verificar-suscripcion.js';
 const router = express.Router();
 
 // GET /api/grupos - Lista de comunidades activas
-router.get('/', verificarSuscripcion.verificarSuscripcionSolo, async (req, res) => {
+router.get('/', verificarSuscripcion, async (req, res) => {
   try {
     const { data, error } = await supabaseClient
       .from('groups')
