@@ -88,8 +88,14 @@
             
             const estado = await Auth.verificarEstadoSuscripcion();
             
-            if (estado?.pago_programado) {
-                btnPlan.textContent = 'Suscripcion programada - 1er cobro en el corte';
+            if (estado?.requiere_revision || estado?.pago_pendiente_cobro) {
+                btnPlan.textContent = 'Revisar suscripcion en tu panel';
+                btnPlan.addEventListener('click', () => window.location.href = 'dashboard.html');
+            } else if (estado?.checkout_pendiente) {
+                btnPlan.textContent = 'Continuar en Mercado Pago';
+                btnPlan.addEventListener('click', () => Pagos.iniciarCheckoutSuscripcion());
+            } else if (estado?.pago_programado) {
+                btnPlan.textContent = 'Proximo cobro programado';
                 btnPlan.disabled = true;
                 btnPlan.classList.add('opacity-50', 'cursor-not-allowed');
             } else if (estado?.en_prueba) {
