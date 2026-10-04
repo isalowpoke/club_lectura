@@ -24,6 +24,11 @@ Thumbs.db
 # Logs
 *.log
 logs/
+logs.md
+
+# Estado local de la CLI de Supabase
+supabase/.temp/
+supabase/.branches/
 
 # Build
 dist/
