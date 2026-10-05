@@ -1,5 +1,10 @@
 # Operación de la fase 6
 
+**Actualización 2026-10-05:** aplicada y verificada en el proyecto; dos vínculos
+reparados y siete recursos sincronizados, sin pendientes ni fallos. Ver
+[APLICACION_SUPABASE_PAGOS.md](APLICACION_SUPABASE_PAGOS.md). Los párrafos siguientes
+documentan la entrega local y el procedimiento para futuras intervenciones.
+
 Implementación local en `develop`, 2026-10-04. La migración y los comandos se
 probaron en bases aisladas. **No se aplicaron en Supabase ni se programó un job
 productivo.** Falta contrastar el esquema completo solicitado en `logs.md` y
@@ -127,7 +132,10 @@ pagos de los pedidos conocidos; no presupone que un estado terminal sea inmutabl
 para siempre. Así puede detectar reembolsos posteriores. Todas las páginas deben
 ser coherentes: resultados truncados/repetidos, cambios de total, timeouts y
 errores quedan reportados. El límite es 100 páginas por búsqueda/inventario,
-con 100 filas solicitadas por página; no se interpreta llegar al límite como éxito.
+con 10 resultados por página de MP y 100 filas por página del inventario local;
+no se interpreta llegar al límite como éxito. El ambiente MP verificado rechazó
+20 y 100 en la búsqueda de facturas, y aceptó 10. No extrapolar los límites de
+otro endpoint ni asumir que la primera página contiene todo el historial.
 
 No hay cursor persistente que salte un fallo: cada corrida vuelve a recorrer los
 recursos y la persistencia existente evita duplicados. Si crece el volumen, dividir

@@ -1,5 +1,10 @@
 # Fase 7: datos mínimos, SDK y preparación de despliegue
 
+**Actualización 2026-10-05:** migraciones aplicadas en Supabase tras restaurar y
+ensayar el respaldo; conciliación sin pendientes. Ver resultados, corrección de
+paginación y 135 pruebas en [APLICACION_SUPABASE_PAGOS.md](APLICACION_SUPABASE_PAGOS.md).
+El resto de este documento conserva el alcance y la evidencia de la entrega local.
+
 Implementada localmente en `develop`, 2026-10-04. No se aplicaron migraciones,
 limpieza ni cambios de configuración en Supabase, Railway o Netlify. Esta fase
 no acredita que Mercado Pago vaya a aprobar un pago rechazado por riesgo.

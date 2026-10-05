@@ -271,6 +271,11 @@ siguen pendientes. Los comandos y el procedimiento están en
 
 ## Entrega de fase 7 — 2026-10-04
 
+Actualización de publicación 2026-10-05: **135 pruebas aprobadas** después de
+corregir el límite de paginación de MP. La nueva regresión falló antes del arreglo.
+Además se restauró public desde el respaldo real y se ensayaron las migraciones.
+Ver [APLICACION_SUPABASE_PAGOS.md](APLICACION_SUPABASE_PAGOS.md).
+
 `npm.cmd run test:pagos`: **134 aprobados, 0 fallidos, 0 omitidos**.
 Suite principal 117; PostgreSQL nativo 17. Se añadieron doce pruebas:
 

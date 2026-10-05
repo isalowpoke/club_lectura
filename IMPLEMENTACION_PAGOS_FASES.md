@@ -1,5 +1,11 @@
 # Implementación de las correcciones de pagos
 
+**Estado al 2026-10-05:** las migraciones ya están aplicadas en Supabase y la
+conciliación terminó sin pendientes. Se ensayó el respaldo real del esquema public.
+Suite actual: **135 pruebas aprobadas**. Ver evidencia y límites en
+[APLICACION_SUPABASE_PAGOS.md](APLICACION_SUPABASE_PAGOS.md).
+Las secciones fechadas anteriormente conservan el estado de sus respectivas entregas.
+
 Fecha: 2026-10-03; fase 7 actualizada el 2026-10-04. Rama autorizada: `develop`.
 Origen: orden de siete pasos de [PLAN_DIAGNOSTICO_PAGOS.md](PLAN_DIAGNOSTICO_PAGOS.md).
 Implementados localmente los pasos 1–4, la suite de fase 5 y las herramientas de
