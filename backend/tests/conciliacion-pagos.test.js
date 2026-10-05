@@ -170,6 +170,22 @@ test('paginacion de MP consume todas las paginas y rechaza resultados truncados/
   await assert.rejects(buscarTodasMP(async()=>({results:[]}),'/busqueda'),/incompleta/);
 });
 
+test('busqueda de facturas respeta el limite aceptado por MP y recupera las paginas restantes', async () => {
+  const facturas = Array.from({length:23},(_,i)=>({id:String(i+1)}));
+  const offsets = [];
+  const recibidas = await buscarTodasMP(async (ruta) => {
+    const url = new URL(ruta,'https://api.mercadopago.com');
+    const limite = Number(url.searchParams.get('limit'));
+    const offset = Number(url.searchParams.get('offset'));
+    if (limite > 10) throw new Error('Consulta MP HTTP 400: Invalid value for limit');
+    assert.equal(url.searchParams.get('preapproval_id'),'abc123');
+    offsets.push(offset);
+    return {results:facturas.slice(offset,offset+limite),paging:{total:facturas.length}};
+  },'/authorized_payments/search',{preapproval_id:'abc123'});
+  assert.deepEqual(recibidas,facturas);
+  assert.deepEqual(offsets,[0,10,20]);
+});
+
 test('anon/authenticated no pueden leer auditoria ni usar reparacion o reversion', async () => {
   const e = await entorno(); await e.asegurarSiembra();
   for (const role of ['anon','authenticated']) {

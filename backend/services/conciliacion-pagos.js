@@ -8,7 +8,9 @@ import { fechaProveedor, desfaseProveedor, periodoFacturado } from './periodos-p
 export async function buscarTodasMP(consultar, ruta, parametros = {}) {
   const filas = []; const ids = new Set(); let total;
   for (let pagina = 0; pagina < 100; pagina += 1) {
-    const query = new URLSearchParams({ ...parametros, limit: '100', offset: String(filas.length) });
+    // /authorized_payments/search rechaza 20 y 100 en el ambiente verificado.
+    // Diez resultados por pagina mantiene compatible la busqueda de suscripciones.
+    const query = new URLSearchParams({ ...parametros, limit: '10', offset: String(filas.length) });
     const respuesta = await consultar(`${ruta}?${query}`);
     const lote = respuesta.results ?? respuesta.elements;
     const cantidad = respuesta.paging?.total ?? respuesta.total;
