@@ -206,11 +206,7 @@ function tieneSuscripcionActiva() {
 // PAGOS
 // ============================================
 
-// MP documenta que los intentos consecutivos con los mismos datos de pagador se
-// interpretan como duplicado y el motor antifraude rechaza y bloquea los pagos
-// posteriores. Este bloqueo evita reintentos inmediatos desde la misma pantalla.
-const BLOQUEO_REINTENTO_MS = 60 * 1000;
-let ultimoIntentoSuscripcion = 0;
+// Todos los botones comparten este flujo. La reserva entre instancias vive en BD.
 let requestingSuscripcion = false;
 
 async function crearPagoSuscripcion() {
@@ -219,17 +215,7 @@ async function crearPagoSuscripcion() {
     return;
   }
 
-  const restante = BLOQUEO_REINTENTO_MS - (Date.now() - ultimoIntentoSuscripcion);
-  if (restante > 0) {
-    mostrarNotificacion(
-      `Espera ${Math.ceil(restante / 1000)} s antes de reintentar el pago`,
-      'info'
-    );
-    return;
-  }
-
   requestingSuscripcion = true;
-  ultimoIntentoSuscripcion = Date.now();
 
   try {
     const { data, error } = await apiRequest('/api/pagos/suscripcion', {
@@ -238,12 +224,14 @@ async function crearPagoSuscripcion() {
 
     if (error) throw error;
 
-    if (data?.init_point) {
+    if (data?.ya_autorizada) {
+      window.location.href = 'dashboard.html';
+    } else if (data?.init_point) {
       window.location.href = data.init_point;
     }
   } catch (error) {
     console.error('Error creando pago:', error);
-    mostrarNotificacion('Error al iniciar pago', 'error');
+    mostrarNotificacion(typeof error === 'string' ? error : error.message || 'No se pudo iniciar el pago', 'error');
   } finally {
     requestingSuscripcion = false;
   }
@@ -268,7 +256,7 @@ async function crearPagoSesionExtra(sesionId, monto) {
 }
 
 async function cancelarSuscripcion() {
-  if (!confirm('Seguro que deseas cancelar tu suscripcion?')) return false;
+  if (!confirm('¿Detener los próximos cobros? Conservarás el acceso del periodo ya pagado.')) return false;
   
   try {
     const { data, error } = await apiRequest('/api/pagos/cancelar', {
@@ -277,8 +265,8 @@ async function cancelarSuscripcion() {
     
     if (error) throw error;
     
-    mostrarNotificacion('Suscripcion cancelada', 'success');
-    estadoSuscripcion = { tiene_suscripcion: false, estado: null };
+    mostrarNotificacion('Próximos cobros cancelados. Tu periodo pagado se conserva.', 'success');
+    await verificarEstadoSuscripcion();
     return true;
   } catch (error) {
     console.error('Error cancelando suscripcion:', error);

@@ -1,8 +1,6 @@
 import express from 'express';
-import cors from 'cors';
+import { configurarHttp, responderErrorHttp } from './middleware/configurar-http.js';
 import dotenv from 'dotenv';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
 import sesionesRoutes from './routes/sesiones.js';
@@ -19,46 +17,7 @@ const PORT = process.env.PORT || 3000;
 // MIDDLEWARES GLOBALES
 // ============================================
 
-// Seguridad - Headers HTTP
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-}));
-
-// CORS - Permitir origenes del frontend (dev + produccion)
-// FRONTEND_URLS acepta lista CSV: "http://localhost:8080,https://dominio"
-// El dominio de produccion de Netlify se incluye siempre como respaldo
-// (evita que un env mal configurado en Railway rompa el acceso en produccion).
-const PROD_FRONTEND = 'https://clublecturahispano.netlify.app';
-const normalizarOrigen = (o) => (/^https?:\/\//i.test(o) ? o : `https://${o}`).replace(/\/+$/, '');
-const origenesPermitidos = process.env.FRONTEND_URLS
-  ? process.env.FRONTEND_URLS.split(',').map((o) => o.trim()).filter(Boolean).map(normalizarOrigen)
-  : [normalizarOrigen(process.env.FRONTEND_URL || 'http://localhost:8080')];
-if (!origenesPermitidos.includes(PROD_FRONTEND)) {
-  origenesPermitidos.push(PROD_FRONTEND);
-}
-
-app.use(cors({
-  origin: origenesPermitidos,
-  credentials: true
-}));
-
-// Railway mete un proxy delante: sin esto Express toma la IP del proxy como IP
-// del cliente, el rate limiter mete a todos los usuarios en el mismo cupo
-// (100 req / 15 min para todo el sitio) y ademas lanza
-// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. El 1 = confiar en un solo salto (Railway).
-app.set('trust proxy', 1);
-
-// Parsear JSON en requests
-app.use(express.json());
-
-// Rate limiting - Proteccion contra abuso
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { success: false, error: 'Demasiadas peticiones, intenta de nuevo en 15 minutos' }
-});
-app.use('/api/', limiter);
+configurarHttp(app);
 
 // ============================================
 // RUTAS
@@ -86,18 +45,12 @@ app.use((req, res) => {
 });
 
 // Error interno del servidor
-app.use((err, req, res, next) => {
-  console.error('Error del servidor:', err);
-  res.status(500).json({ success: false, error: 'Error interno del servidor' });
-});
+app.use(responderErrorHttp);
 
 // ============================================
 // INICIAR SERVIDOR
 // ============================================
 
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
-  console.log(`Frontend URLs: ${origenesPermitidos.join(', ')}`);
-});
+app.listen(PORT);
 
 export default app;

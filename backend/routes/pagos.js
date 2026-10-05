@@ -1,293 +1,90 @@
 import express from 'express';
 import { supabaseClient } from '../services/supabase.js';
-import {
-  crearPreapprovalSuscripcion,
-  crearPreferenciaSesionExtra,
-  procesarWebhookMercadoPago,
-  procesarWebhookSuscripcionPreapproval,
-  procesarWebhookSuscripcionPagoAutorizado,
-  procesarWebhookSuscripcionCancelada,
-  cancelarSuscripcion,
-  interpretarFechaUtc
-} from '../services/mercadopago.js';
-import { obtenerAccesoUsuario } from '../services/suscripciones.js';
+import { crearPreapprovalSuscripcion, crearPreferenciaSesionExtra, procesarWebhookMercadoPago,
+  procesarWebhookSuscripcionPreapproval, procesarWebhookSuscripcionPagoAutorizado,
+  procesarWebhookSuscripcionCancelada, cancelarSuscripcion } from '../services/mercadopago.js';
+import { obtenerAccesoUsuario, presentarEstadoAcceso } from '../services/suscripciones.js';
 import verificarUsuario from '../middleware/verificar-usuario.js';
-import verificarFirmaWebhook from '../middleware/verificar-firma-webhook.js';
+import { presentarPago } from '../services/historial-pagos.js';
+import verificarFirmaWebhook, { normalizarWebhook } from '../middleware/verificar-firma-webhook.js';
 
 const router = express.Router();
 
-// ============================================
-// POST /api/pagos/suscripcion
-// ============================================
+function responderError(res, error) {
+  return res.status(error.status === 409 ? 409 : 500).json({ success: false,
+    error: error.status === 409 ? error.message : 'No se pudo completar la operación. Intenta verificar su estado nuevamente.' });
+}
+
 router.post('/suscripcion', verificarUsuario, async (req, res) => {
   try {
-    const usuarioId = req.usuario.id;
-    const email = req.usuario.email;
-    console.log('[PAGOS] Creando preferencia para:', email, usuarioId);
-
-    const { data, error } = await crearPreapprovalSuscripcion(usuarioId, email);
-    if (error) {
-      console.error('[PAGOS] Error creando preapproval:', JSON.stringify(error));
-      return res.status(500).json({ success: false, error: 'Error al crear suscripcion recurrente: ' + (error.message || JSON.stringify(error)) });
-    }
-
-    console.log('[PAGOS] Preapproval creado:', data?.id, 'init_point:', data?.init_point ? 'OK' : 'FALTA');
-
-    return res.json({
-      success: true,
-      data: {
-        init_point: data.init_point,
-        preference_id: data.id,
-      }
-    });
-
-  } catch (error) {
-    console.error('Error en POST /api/pagos/suscripcion:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
+    const { data, error } = await crearPreapprovalSuscripcion(req.usuario.id, req.usuario.email);
+    if (error) return responderError(res, error);
+    return res.json({ success: true, data: { init_point: data.init_point,
+      preference_id: data.id, ya_autorizada: !!data.ya_autorizada } });
+  } catch (error) { return responderError(res, error); }
 });
 
-// ============================================
-// POST /api/pagos/sesion-extra
-// ============================================
 router.post('/sesion-extra', verificarUsuario, async (req, res) => {
   try {
-    const usuarioId = req.usuario.id;
-    const email = req.usuario.email;
-    const { sesion_id } = req.body;
-
-    if (!sesion_id) {
-      return res.status(400).json({ success: false, error: 'sesion_id es requerido' });
+    const sesionId = Number(req.body?.sesion_id);
+    if (!Number.isSafeInteger(sesionId) || sesionId <= 0) {
+      return res.status(400).json({ success: false, error: 'sesion_id invalido' });
     }
-
-    // Verificar que la sesion existe y es especial
-    const { data: sesion, error: errorSesion } = await supabaseClient
-      .from('sessions')
-      .select('id, title, type, price')
-      .eq('id', sesion_id)
-      .single();
-
-    if (errorSesion || !sesion) {
-      return res.status(404).json({ success: false, error: 'Sesion no encontrada' });
-    }
-
-    if (sesion.type !== 'especial') {
-      return res.status(400).json({ success: false, error: 'Solo se pueden comprar sesiones especiales' });
-    }
-
-    // Verificar que el usuario no haya comprado ya esta sesion.
-    // Solo cuentan las compras vigentes: una rechazada libera el lugar para
-    // reintentar. maybeSingle evita el error PGRST116 de .single() cuando
-    // existen varias filas historicas.
-    const { data: compraExistente, error: errorCompra } = await supabaseClient
-      .from('extra_sessions')
-      .select('id')
-      .eq('user_id', usuarioId)
-      .eq('session_id', sesion_id)
-      .neq('status', 'rechazada')
-      .limit(1)
-      .maybeSingle();
-
-    if (errorCompra) {
-      console.error('Error verificando compra previa:', errorCompra);
-      return res.status(500).json({ success: false, error: 'Error al verificar compra previa' });
-    }
-
-    if (compraExistente) {
-      return res.status(400).json({ success: false, error: 'Ya compraste esta sesion' });
-    }
-
-    // El monto lo define el servidor desde el precio de la sesion: el cliente
-    // no puede elegir cuanto paga.
-    const montoFinal = sesion.price || 50.00;
-
-    const { data, error } = await crearPreferenciaSesionExtra(
-      usuarioId, email, sesion_id, sesion.title, montoFinal
-    );
-
-    if (error) {
-      console.error('Error creando preferencia de sesion extra:', error);
-      return res.status(500).json({ success: false, error: 'Error al crear preferencia de pago' });
-    }
-
-    return res.json({
-      success: true,
-      data: {
-        init_point: data.init_point,
-        preference_id: data.id,
-      }
-    });
-
-  } catch (error) {
-    console.error('Error en POST /api/pagos/sesion-extra:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
+    // La reserva SQL toma el precio y verifica la sesion en la misma transaccion.
+    const { data, error } = await crearPreferenciaSesionExtra(req.usuario.id, req.usuario.email, sesionId);
+    if (error) return responderError(res, error);
+    return res.json({ success: true, data: { init_point: data.init_point, preference_id: data.id } });
+  } catch (error) { return responderError(res, error); }
 });
 
-// ============================================
-// POST /api/pagos/webhook
-// ============================================
 router.post('/webhook', async (req, res) => {
   try {
-    const webhookData = req.body;
-    const tipoNotificacion = req.query.type || webhookData.type;
-
-    // Validar firma HMAC si el secreto esta configurado (produccion)
-    const dataId = req.query['data.id'] || webhookData.data?.id || webhookData.id || null;
-    const { valida: firmaValida, motivo: motivoFirma } = verificarFirmaWebhook({
-      xSignature: req.headers['x-signature'],
-      xRequestId: req.headers['x-request-id'],
-      dataId,
-      secret: process.env.MERCADOPAGO_WEBHOOK_SECRET,
-    });
-
-    if (!firmaValida) {
-      console.warn('[WEBHOOK] Firma invalida, request rechazado. Motivo:', motivoFirma);
-      return res.status(401).json({ success: false, error: 'Firma invalida' });
+    if (!process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim()) {
+      return res.status(503).json({ success: false, error: 'Webhook no configurado' });
     }
-    if (motivoFirma.startsWith('MERCADOPAGO_WEBHOOK_SECRET no configurado')) {
-      console.warn('[WEBHOOK]', motivoFirma, '- se continua en modo desarrollo');
-    }
-
-    // Validar que sea una notificacion conocida
-    let result;
-    if (tipoNotificacion === 'payment') {
-      result = await procesarWebhookMercadoPago(webhookData);
-    } else if (tipoNotificacion === 'subscription_preapproval' || tipoNotificacion === 'subscription_created') {
-      // Evento real de MP para vinculacion/actualizacion de una suscripcion.
-      result = await procesarWebhookSuscripcionPreapproval(webhookData);
-    } else if (tipoNotificacion === 'subscription_authorized_payment') {
-      result = await procesarWebhookSuscripcionPagoAutorizado(webhookData);
-    } else if (tipoNotificacion === 'subscription_cancelled') {
-      result = await procesarWebhookSuscripcionCancelada(webhookData);
-    } else {
-      return res.status(200).json({ success: true, message: 'Tipo de notificacion no manejado' });
-    }
-
-    const { data, error } = result;
-    if (error) {
-      console.error('Error procesando webhook:', error);
-      return res.status(200).json({ success: false, error: 'Error procesando webhook' });
-    }
-
-    return res.status(200).json({ success: true, data });
-
+    let webhookData;
+    try { webhookData = normalizarWebhook(req.query, req.body); }
+    catch { return res.status(400).json({ success: false, error: 'Recurso de webhook invalido' }); }
+    const { valida } = verificarFirmaWebhook({ xSignature: req.headers['x-signature'],
+      xRequestId: req.headers['x-request-id'], dataId: webhookData.data.id, secret: process.env.MERCADOPAGO_WEBHOOK_SECRET });
+    if (!valida) return res.status(401).json({ success: false, error: 'Firma invalida' });
+    const handlers = { payment: procesarWebhookMercadoPago,
+      subscription_preapproval: procesarWebhookSuscripcionPreapproval,
+      subscription_created: procesarWebhookSuscripcionPreapproval,
+      subscription_authorized_payment: procesarWebhookSuscripcionPagoAutorizado,
+      subscription_cancelled: procesarWebhookSuscripcionCancelada };
+    if (!Object.hasOwn(handlers, webhookData.type)) return res.json({ success: true, message: 'Tipo de notificacion no manejado' });
+    const { data, error } = await handlers[webhookData.type](webhookData);
+    if (error) throw error;
+    return res.json({ success: true, data });
   } catch (error) {
-    console.error('Error en webhook de Mercado Pago:', error);
-    return res.status(200).json({ success: false, error: 'Error procesando webhook' });
+    console.error('[WEBHOOK] Procesamiento fallido:', error.message);
+    return res.status(500).json({ success: false, error: 'Error procesando webhook' });
   }
 });
 
-// ============================================
-// POST /api/pagos/cancelar
-// ============================================
 router.post('/cancelar', verificarUsuario, async (req, res) => {
   try {
-    const usuarioId = req.usuario.id;
-
-    const { data, error } = await cancelarSuscripcion(usuarioId);
-    if (error) {
-      console.error('Error cancelando suscripcion:', error);
-      return res.status(500).json({ success: false, error: error.message || 'Error al cancelar suscripcion' });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Suscripcion cancelada exitosamente'
-    });
-
-  } catch (error) {
-    console.error('Error en POST /api/pagos/cancelar:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
+    const { data, error } = await cancelarSuscripcion(req.usuario.id);
+    if (error) return responderError(res, error);
+    return res.json({ success: true, data, message: 'Recurrencia cancelada; se conserva el periodo pagado.' });
+  } catch (error) { return responderError(res, error); }
 });
 
-// ============================================
-// GET /api/pagos/estado
-// ============================================
 router.get('/estado', verificarUsuario, async (req, res) => {
   try {
-    const usuarioId = req.usuario.id;
-    const ahora = new Date().toISOString();
-
-    // La decision de acceso vive en services/suscripciones.js (la misma que usa
-    // GET /api/sesiones para decidir si entrega el enlace de la reunion), asi que
-    // la ventana de gracia se aplica igual en los dos lados.
-    const { suscripcion, graciaVencida } = await obtenerAccesoUsuario(usuarioId);
-
-    // Suscripcion de pago programada o con cobro pendiente (durante/despues de la prueba)
-    const { data: pendiente } = await supabaseClient
-      .from('suscriptions')
-      .select('sub_id, init_date, end_date')
-      .eq('user_id', usuarioId)
-      .eq('plan', 'mensual')
-      .eq('status', 'pending')
-      .not('mp_sub_id', 'is', null)
-      .order('init_date', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    const ahoraMs = Date.now();
-    const pagoProgramado = !!pendiente && interpretarFechaUtc(pendiente.init_date).getTime() >= ahoraMs;
-    const pagoPendienteCobro = !!pendiente && !pagoProgramado;
-
-    const proximaCobro = pendiente?.init_date
-      || (suscripcion ? suscripcion.end_date : null);
-
-    return res.json({
-      success: true,
-      data: {
-        tiene_suscripcion: !!suscripcion,
-        estado: suscripcion ? 'activa' : 'inactiva',
-        plan: suscripcion?.plan || null,
-        precio: suscripcion?.price || null,
-        fecha_fin: suscripcion?.end_date
-          ? interpretarFechaUtc(suscripcion.end_date).toISOString()
-          : null,
-        en_prueba: suscripcion?.plan === 'gratis',
-        renovacion_fallida: graciaVencida,
-        pago_programado: pagoProgramado,
-        pago_pendiente_cobro: pagoPendienteCobro,
-        proxima_fecha_cobro: proximaCobro
-          ? interpretarFechaUtc(proximaCobro).toISOString()
-          : null,
-      }
-    });
-
-  } catch (error) {
-    console.error('Error en GET /api/pagos/estado:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
+    return res.json({ success: true, data: presentarEstadoAcceso(await obtenerAccesoUsuario(req.usuario.id)) });
+  } catch (error) { return responderError(res, error); }
 });
 
-// ============================================
-// GET /api/pagos/historial
-// ============================================
 router.get('/historial', verificarUsuario, async (req, res) => {
   try {
-    const usuarioId = req.usuario.id;
-
-    const { data: pagos, error } = await supabaseClient
-      .from('pagos')
-      .select('*')
-      .eq('user_id', usuarioId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    if (error) {
-      console.error('Error obteniendo historial de pagos:', error);
-      return res.status(500).json({ success: false, error: 'Error al obtener historial' });
-    }
-
-    return res.json({
-      success: true,
-      data: pagos || []
-    });
-
-  } catch (error) {
-    console.error('Error en GET /api/pagos/historial:', error);
-    return res.status(500).json({ success: false, error: 'Error interno del servidor' });
-  }
+    const { data, error } = await supabaseClient.from('pagos')
+      .select('mp_payment_id, monto, moneda, estado_mp, tipo, created_at')
+      .eq('user_id', req.usuario.id).order('created_at', { ascending: false }).limit(20);
+    if (error) throw new Error('Historial no disponible');
+    return res.json({ success: true, data: (data || []).map(presentarPago) });
+  } catch (error) { return responderError(res, error); }
 });
 
 export default router;

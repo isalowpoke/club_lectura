@@ -1,5 +1,6 @@
 // verificar-firma-webhook.js - Validacion de firma HMAC de Mercado Pago
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { validarIdRecurso } from '../services/validar-pago-suscripcion.js';
 
 // Algoritmo oficial MP:
 //   manifiesto = "id:{data.id};request-id:{x-request-id};ts:{ts};"
@@ -7,10 +8,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 //   firma = HMAC-SHA256(secreto, manifiesto) en hexadecimal
 //   compararla en tiempo constante contra v1 del header x-signature
 export function verificarFirmaWebhook({ xSignature, xRequestId, dataId, secret }) {
-  if (!secret) {
-    return { valida: true, motivo: 'MERCADOPAGO_WEBHOOK_SECRET no configurado (validacion omitida)' };
+  if (typeof secret !== 'string' || !secret.trim()) {
+    return { valida: false, motivo: 'MERCADOPAGO_WEBHOOK_SECRET no configurado' };
   }
-  if (!xSignature) {
+  if (typeof xSignature !== 'string') {
     return { valida: false, motivo: 'Falta header x-signature' };
   }
 
@@ -25,7 +26,7 @@ export function verificarFirmaWebhook({ xSignature, xRequestId, dataId, secret }
     if (clave === 'v1') v1 = valor;
   }
 
-  if (!ts || !v1) {
+  if (!/^\d+$/.test(ts || '') || !/^[a-f\d]{64}$/i.test(v1 || '')) {
     return { valida: false, motivo: 'Header x-signature sin ts/v1' };
   }
 
@@ -50,3 +51,26 @@ export function verificarFirmaWebhook({ xSignature, xRequestId, dataId, secret }
 }
 
 export default verificarFirmaWebhook;
+
+// El id de nivel superior identifica la notificacion, no el recurso de MP.
+export function normalizarWebhook(query = {}, body = {}) {
+  const normalizarId = (valor) => {
+    if (valor === undefined || valor === null) return null;
+    return validarIdRecurso(valor);
+  };
+  const queryId = normalizarId(query['data.id']);
+  const bodyId = normalizarId(body?.data?.id);
+  if (queryId && bodyId && queryId !== bodyId) {
+    throw new Error('IDs de recurso discrepantes');
+  }
+  const id = queryId || bodyId;
+  if (!id) throw new Error('Falta data.id');
+  if (query.type && body?.type && query.type !== body.type) {
+    throw new Error('Tipos de notificacion discrepantes');
+  }
+  const type = query.type || body?.type;
+  if (typeof type !== 'string' || !/^[a-z_]+$/.test(type)) {
+    throw new Error('Tipo de notificacion invalido');
+  }
+  return { type, data: { id } };
+}

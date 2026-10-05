@@ -5,20 +5,7 @@
 // ============================================
 
 async function iniciarCheckoutSuscripcion() {
-  try {
-    const { data, error } = await Auth.apiRequest('/api/pagos/suscripcion', {
-      method: 'POST',
-    });
-    
-    if (error) throw error;
-    
-    if (data?.init_point) {
-      window.location.href = data.init_point;
-    }
-  } catch (error) {
-    console.error('Error al crear preferencia:', error);
-    Auth.mostrarNotificacion('Error al procesar el pago', 'error');
-  }
+  return Auth.crearPagoSuscripcion();
 }
 
 // ============================================
@@ -81,7 +68,7 @@ function verificarPagoReturn() {
   const paymentStatus = params.get('payment');
   
   if (paymentStatus === 'success') {
-    Auth.mostrarNotificacion('Pago procesado correctamente', 'success');
+    Auth.mostrarNotificacion('Consulta en tu panel la confirmación del pago.', 'info');
     // Limpiar URL
     window.history.replaceState({}, document.title, window.location.pathname);
   } else if (paymentStatus === 'failure') {

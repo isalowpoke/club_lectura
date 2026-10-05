@@ -1,51 +1,28 @@
 import { supabaseClient } from './supabase.js';
-import { interpretarFechaUtc, calcularLimiteGracia } from './mercadopago.js';
+import { interpretarFechaUtc } from './periodos-pago.js';
 
-// Unica fuente de verdad de "¿este usuario tiene acceso ahora?".
-//
-// La comparten GET /api/pagos/estado, GET /api/sesiones (que entrega el enlace de
-// la reunion) y el middleware de suscripcion. Que la decision viva en un solo
-// sitio es lo que impide que una ruta se quede sin chequear.
-//
-// Criterio: una fila `suscriptions` con `status = 'active'` y `end_date` vigente,
-// cuyo `failed_at` (primer cobro de renovacion no aprobado) no sea anterior a la
-// ventana de gracia. El trial `plan = 'gratis'` cuenta igual, asi que durante el
-// mes gratis el acceso viene de ahi y no de la fila de pago.
+// Una sola decision para dashboard, sesiones y middleware, en un snapshot SQL.
 export async function obtenerAccesoUsuario(usuarioId) {
-  const ahora = new Date().toISOString();
-  const limiteGraciaMs = new Date(calcularLimiteGracia()).getTime();
+  const { data, error } = await supabaseClient.rpc('estado_acceso_pagos', { p_usuario: usuarioId });
+  if (error || !data) throw new Error('No se pudo consultar el acceso');
+  return data;
+}
 
-  const { data: candidatas, error } = await supabaseClient
-    .from('suscriptions')
-    .select('*')
-    .eq('user_id', usuarioId)
-    .eq('status', 'active')
-    .gte('end_date', ahora)
-    .order('sub_id', { ascending: false });
-
-  if (error) {
-    throw new Error('Error consultando suscripciones: ' + error.message);
-  }
-
-  let suscripcion = null;
-  let graciaVencida = false;
-
-  for (const fila of candidatas || []) {
-    if (!fila.failed_at) {
-      suscripcion = fila;
-      break;
-    }
-    if (interpretarFechaUtc(fila.failed_at).getTime() > limiteGraciaMs) {
-      suscripcion = fila;
-      break;
-    }
-    // Habia una activa pero su gracia de cobro ya se agoto.
-    graciaVencida = true;
-  }
-
-  return {
-    suscripcion,
-    tieneAcceso: !!suscripcion,
-    graciaVencida,
-  };
+export function presentarEstadoAcceso(acceso) {
+  const { suscripcion, tieneAcceso, enGracia, graciaVencida, acuerdos = [] } = acceso;
+  const autorizado = acuerdos.length === 1 && acuerdos[0].recurrence_status === 'authorized' ? acuerdos[0] : null;
+  const pendiente = acuerdos.some((a) => a.recurrence_status === 'pending');
+  const proxima = autorizado?.next_payment_at || null;
+  const pagoProgramado = !!proxima && Number.isFinite(Date.parse(proxima)) && Date.parse(proxima) > Date.now();
+  return { tiene_suscripcion: tieneAcceso, estado: tieneAcceso ? 'activa' : 'inactiva',
+    plan: suscripcion?.plan || null, precio: suscripcion?.price || null,
+    fecha_fin: interpretarFechaUtc(suscripcion?.end_date)?.toISOString() || null, en_prueba: suscripcion?.plan === 'gratis',
+    en_gracia: enGracia, renovacion_fallida: enGracia || graciaVencida,
+    checkout_pendiente: pendiente, pago_programado: pagoProgramado,
+    pago_pendiente_cobro: !!autorizado && !pagoProgramado && !tieneAcceso,
+    cobro_rechazado: autorizado?.ultimo_estado_pago === 'rejected',
+    puede_cancelar: acuerdos.some((a) => a.recurrence_status !== 'cancelled'),
+    recurrencia_cancelada: tieneAcceso && suscripcion?.plan === 'mensual' && ['cancelled', 'paused'].includes(suscripcion.recurrence_status),
+    requiere_revision: !!acceso.operacionPendiente || acuerdos.length > 1 || acuerdos.some((a) => !a.recurrence_status),
+    proxima_fecha_cobro: pagoProgramado ? proxima : null };
 }
